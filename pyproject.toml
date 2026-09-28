@@ -1,0 +1,19 @@
+[project]
+name = "libvlc-gen"
+version = "1.0.0"
+description = "Universal LibVLC Binary Generator"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.8"
+dependencies = [
+    "requests>=2.31.0",
+    "tqdm>=4.66.0",
+    "colorama>=0.4.6",
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["tools"]

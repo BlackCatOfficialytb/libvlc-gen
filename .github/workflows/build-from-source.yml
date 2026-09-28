@@ -3,159 +3,613 @@ name: Build LibVLC from Source
 on:
   workflow_dispatch:
     inputs:
-      vlc_version:
-        description: 'VLC version/tag to build (e.g., 3.0.20, master)'
+      vlc_branch:
+        description: "VLC git branch/tag to build"
         type: string
         required: true
-        default: '3.0.20'
-      arch:
-        description: 'Target architecture'
-        type: choice
-        required: true
-        default: 'arm64'
-        options:
-          - arm64
-          - arm64e
-      enable_debug:
-        description: 'Enable debug symbols'
+        default: "master"
+      target_os:
+        description: "Target OS matrix (comma-separated)"
+        type: string
+        required: false
+        default: "ios,android,macos,linux,windows"
+      create_release:
+        description: "Create GitHub Release with artifacts"
         type: boolean
         required: false
-        default: false
+        default: true
+      release_tag:
+        description: "Release tag (default: vlc-<branch>-YYYYMMDD)"
+        type: string
+        required: false
+        default: ""
 
-permissions:
-  contents: read
-  actions: write
+env:
+  VLC_REPO_URL: https://code.videolan.org/videolan/vlc.git
+  PYTHON_VERSION: '3.11'
 
 jobs:
-  build:
-    name: Build LibVLC from Source (${{ github.event.inputs.arch }})
+  build-ios-macos:
+    name: Build ${{ matrix.target_os }}-${{ matrix.arch }}
+    if: contains(github.event.inputs.target_os, matrix.target_os) || github.event.inputs.target_os == ''
     runs-on: macos-14
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target_os: ios
+            arch: arm64
+            sdk: iphoneos
+            deployment_target: "13.0"
+          - target_os: ios
+            arch: armv7
+            sdk: iphoneos
+            deployment_target: "13.0"
+          - target_os: macos
+            arch: arm64
+            sdk: macosx
+            deployment_target: "11.0"
+          - target_os: macos
+            arch: x86_64
+            sdk: macosx
+            deployment_target: "10.15"
     timeout-minutes: 120
-    
-    env:
-      VLC_VERSION: ${{ github.event.inputs.vlc_version }}
-      ARCH: ${{ github.event.inputs.arch }}
-      ENABLE_DEBUG: ${{ github.event.inputs.enable_debug }}
-    
     steps:
-      - name: Checkout libvlc-gen repository
+      - name: Checkout repository
         uses: actions/checkout@v4
-      
-      - name: Checkout VLC source code
-        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
-          repository: videolan/vlc
-          ref: ${{ env.VLC_VERSION }}
-          path: vlc-source
-          submodules: recursive
-      
+          python-version: ${{ env.PYTHON_VERSION }}
+
       - name: Install dependencies
         run: |
-          brew update
-          brew install autoconf automake libtool pkg-config gettext wget yasm nasm
-          # Install Python dependencies for build scripts
-          pip3 install --user requests
-      
-      - name: Configure build environment
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          brew install meson ninja pkg-config
+
+      - name: Clone VLC source
         run: |
-          echo "VLC_SOURCE_DIR=$(pwd)/vlc-source" >> $GITHUB_ENV
-          echo "BUILD_DIR=$(pwd)/build" >> $GITHUB_ENV
-          echo "DIST_DIR=$(pwd)/dist" >> $GITHUB_ENV
-      
-      - name: Build LibVLC for iOS
-        working-directory: ${{ env.VLC_SOURCE_DIR }}/extras/package/ios
+          git clone --depth 1 --branch ${{ github.event.inputs.vlc_branch }} ${{ env.VLC_REPO_URL }} vlc-source
+
+      - name: Configure iOS build
+        if: matrix.target_os == 'ios'
         run: |
-          chmod +x build.sh
-          ./build.sh -a ${{ env.ARCH }} ${{ env.ENABLE_DEBUG == 'true' && '-d' || '' }}
-        env:
-          # Ensure we use the correct SDK
-          IPHONEOS_DEPLOYMENT_TARGET: 12.0
-      
-      - name: Locate built artifacts
-        id: locate
-        run: |
-          # The build script outputs to build/ directory
-          BUILD_OUTPUT="${{ env.VLC_SOURCE_DIR }}/extras/package/ios/build"
+          cd vlc-source
+          mkdir -p build-ios-${{ matrix.arch }}
+          cat > cross-ios-${{ matrix.arch }}.meson << EOF
+          [binaries]
+          c = 'xcrun -sdk ${{ matrix.sdk }} clang'
+          cpp = 'xcrun -sdk ${{ matrix.sdk }} clang++'
+          ar = 'xcrun -sdk ${{ matrix.sdk }} ar'
+          strip = 'xcrun -sdk ${{ matrix.sdk }} strip'
+          pkgconfig = 'pkg-config'
           
-          # Find the framework
-          FRAMEWORK=$(find "$BUILD_OUTPUT" -name "*.framework" -type d | head -1)
-          if [ -z "$FRAMEWORK" ]; then
-            echo "ERROR: No framework found in $BUILD_OUTPUT"
-            find "$BUILD_OUTPUT" -type f -name "*.a" | head -20
-            exit 1
-          fi
+          [host_machine]
+          system = 'darwin'
+          cpu_family = '${{ matrix.arch == 'arm64' && 'aarch64' || 'arm' }}'
+          cpu = '${{ matrix.arch }}'
+          endian = 'little'
           
-          echo "framework=$FRAMEWORK" >> $GITHUB_OUTPUT
-          echo "Found framework: $FRAMEWORK"
-      
-      - name: Extract headers and libraries
+          [properties]
+          sys_root = '/Applications/Xcode.app/Contents/Developer/Platforms/${{ matrix.sdk }}.platform/Developer/SDKs/${{ matrix.sdk }}.sdk'
+          c_args = ['-arch', '${{ matrix.arch }}', '-isysroot', '/Applications/Xcode.app/Contents/Developer/Platforms/${{ matrix.sdk }}.platform/Developer/SDKs/${{ matrix.sdk }}.sdk', '-miphoneos-version-min=${{ matrix.deployment_target }}']
+          cpp_args = ['-arch', '${{ matrix.arch }}', '-isysroot', '/Applications/Xcode.app/Contents/Developer/Platforms/${{ matrix.sdk }}.platform/Developer/SDKs/${{ matrix.sdk }}.sdk', '-miphoneos-version-min=${{ matrix.deployment_target }}']
+          link_args = ['-arch', '${{ matrix.arch }}', '-isysroot', '/Applications/Xcode.app/Contents/Developer/Platforms/${{ matrix.sdk }}.platform/Developer/SDKs/${{ matrix.sdk }}.sdk', '-miphoneos-version-min=${{ matrix.deployment_target }}']
+          EOF
+          
+          meson setup build-ios-${{ matrix.arch }} \
+            --cross-file cross-ios-${{ matrix.arch }}.meson \
+            -Dbuildtype=release \
+            -Dvulkan=disabled \
+            -Dlua=disabled \
+            -Djavascript=disabled
+
+      - name: Configure macOS build
+        if: matrix.target_os == 'macos'
         run: |
-          FRAMEWORK="${{ steps.locate.outputs.framework }}"
-          FRAMEWORK_NAME=$(basename "$FRAMEWORK" .framework)
+          cd vlc-source
+          mkdir -p build-macos-${{ matrix.arch }}
+          cat > cross-macos-${{ matrix.arch }}.meson << EOF
+          [binaries]
+          c = 'clang'
+          cpp = 'clang++'
+          ar = 'ar'
+          strip = 'strip'
+          pkgconfig = 'pkg-config'
           
-          # Create dist structure
-          mkdir -p "${{ env.DIST_DIR }}/include/vlc"
-          mkdir -p "${{ env.DIST_DIR }}/lib"
+          [host_machine]
+          system = 'darwin'
+          cpu_family = '${{ matrix.arch == 'arm64' && 'aarch64' || 'x86_64' }}'
+          cpu = '${{ matrix.arch }}'
+          endian = 'little'
+          
+          [properties]
+          c_args = ['-arch', '${{ matrix.arch }}', '-mmacosx-version-min=${{ matrix.deployment_target }}']
+          cpp_args = ['-arch', '${{ matrix.arch }}', '-mmacosx-version-min=${{ matrix.deployment_target }}']
+          link_args = ['-arch', '${{ matrix.arch }}', '-mmacosx-version-min=${{ matrix.deployment_target }}']
+          EOF
+          
+          meson setup build-macos-${{ matrix.arch }} \
+            --cross-file cross-macos-${{ matrix.arch }}.meson \
+            -Dbuildtype=release \
+            -Dvulkan=disabled
+
+      - name: Build
+        run: |
+          cd vlc-source
+          BUILD_DIR="build-${{ matrix.target_os }}-${{ matrix.arch }}"
+          ninja -C "$BUILD_DIR" -j$(sysctl -n hw.ncpu)
+
+      - name: Collect artifacts
+        run: |
+          cd vlc-source
+          BUILD_DIR="build-${{ matrix.target_os }}-${{ matrix.arch }}"
+          mkdir -p ../../dist/${{ matrix.target_os }}-${{ matrix.arch }}/include/vlc
+          mkdir -p ../../dist/${{ matrix.target_os }}-${{ matrix.arch }}/lib
           
           # Copy headers
-          if [ -d "$FRAMEWORK/Headers" ]; then
-            cp "$FRAMEWORK/Headers"/*.h "${{ env.DIST_DIR }}/include/vlc/"
-          elif [ -d "$FRAMEWORK/Modules/vlc/Headers" ]; then
-            cp "$FRAMEWORK/Modules/vlc/Headers"/*.h "${{ env.DIST_DIR }}/include/vlc/"
-          fi
+          find "$BUILD_DIR" -name "*.h" -path "*/include/*" -exec cp {} ../../dist/${{ matrix.target_os }}-${{ matrix.arch }}/include/vlc/ \;
+          find "$BUILD_DIR/../include" -name "*.h" -exec cp {} ../../dist/${{ matrix.target_os }}-${{ matrix.arch }}/include/vlc/ \; 2>/dev/null || true
+          find "$BUILD_DIR/../src" -name "vlc*.h" -exec cp {} ../../dist/${{ matrix.target_os }}-${{ matrix.arch }}/include/vlc/ \; 2>/dev/null || true
           
-          # Copy modulemap if exists
-          if [ -f "$FRAMEWORK/Modules/module.modulemap" ]; then
-            cp "$FRAMEWORK/Modules/module.modulemap" "${{ env.DIST_DIR }}/include/vlc/"
-          fi
-          
-          # Copy static library (the framework binary)
-          if [ -f "$FRAMEWORK/$FRAMEWORK_NAME" ]; then
-            cp "$FRAMEWORK/$FRAMEWORK_NAME" "${{ env.DIST_DIR }}/lib/libvlc.a"
-            cp "$FRAMEWORK/$FRAMEWORK_NAME" "${{ env.DIST_DIR }}/lib/libvlccore.a"
-          fi
-          
-          # Also look for individual .a files in the build directory
-          find "$BUILD_OUTPUT" -name "*.a" -type f | while read lib; do
-            cp "$lib" "${{ env.DIST_DIR }}/lib/"
-          done
-      
-      - name: Verify build output
+          # Copy libraries
+          find "$BUILD_DIR" \( -name "*.a" -o -name "*.dylib" \) -exec cp {} ../../dist/${{ matrix.target_os }}-${{ matrix.arch }}/lib/ \;
+
+      - name: Verify artifacts
         run: |
-          echo "=== Headers ==="
-          ls -la "${{ env.DIST_DIR }}/include/vlc/"
+          DIST_DIR="../dist/${{ matrix.target_os }}-${{ matrix.arch }}"
+          echo "=== Contents of $DIST_DIR ==="
+          find "$DIST_DIR" -type f | sort
           echo ""
-          echo "=== Libraries ==="
-          ls -la "${{ env.DIST_DIR }}/lib/"
+          echo "=== Library files ==="
+          ls -lh "$DIST_DIR/lib/"
           echo ""
-          echo "=== Library sizes ==="
-          for lib in "${{ env.DIST_DIR }}/lib"/*.a; do
-            if [ -f "$lib" ]; then
-              size=$(stat -f%z "$lib")
-              echo "$(basename "$lib"): $size bytes ($(echo "scale=2; $size/1024/1024" | bc) MB)"
-            fi
-          done
-      
-      - name: Create release archive
+          echo "=== Header files ==="
+          ls -lh "$DIST_DIR/include/vlc/" | head -30
+
+      - name: Create package
         run: |
-          cd "${{ env.DIST_DIR }}"
-          zip -r "../../libvlc-ios-${{ env.ARCH }}-from-source.zip" .
-          cd ../..
-          ls -lh libvlc-*.zip
-      
+          cd dist
+          zip -r "libvlc-${{ matrix.target_os }}-${{ matrix.arch }}-built.zip" "${{ matrix.target_os }}-${{ matrix.arch }}/"
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: libvlc-ios-${{ env.ARCH }}-from-source
-          path: libvlc-ios-${{ env.ARCH }}-from-source.zip
+          name: libvlc-${{ matrix.target_os }}-${{ matrix.arch }}-built
+          path: |
+            dist/${{ matrix.target_os }}-${{ matrix.arch }}/
+            dist/libvlc-${{ matrix.target_os }}-${{ matrix.arch }}-built.zip
           retention-days: 30
-      
-      - name: Create GitHub Release (on tag)
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v1
+
+  build-android:
+    name: Build Android-${{ matrix.arch }}
+    if: contains(github.event.inputs.target_os, 'android') || github.event.inputs.target_os == ''
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            abi: arm64-v8a
+            api: 21
+            ndk_arch: arm64
+          - arch: armv7
+            abi: armeabi-v7a
+            api: 21
+            ndk_arch: arm
+          - arch: x86_64
+            abi: x86_64
+            api: 21
+            ndk_arch: x86_64
+          - arch: x86
+            abi: x86
+            api: 21
+            ndk_arch: x86
+    timeout-minutes: 180
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
-          files: libvlc-ios-${{ env.ARCH }}-from-source.zip
-          generate_release_notes: true
-          tag_name: ${{ github.ref_name }}-ios-${{ env.ARCH }}
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          sudo apt-get update && sudo apt-get install -y meson ninja-build pkg-config unzip
+
+      - name: Setup Android NDK
+        uses: android-actions/setup-android@v3
+        with:
+          ndk-version: r27b
+
+      - name: Clone VLC source
+        run: |
+          git clone --depth 1 --branch ${{ github.event.inputs.vlc_branch }} ${{ env.VLC_REPO_URL }} vlc-source
+
+      - name: Configure Android build
+        run: |
+          cd vlc-source
+          mkdir -p build-android-${{ matrix.arch }}
+          
+          cat > cross-android-${{ matrix.arch }}.meson << EOF
+          [binaries]
+          c = '${{ matrix.ndk_arch }}-linux-android${{ matrix.api }}-clang'
+          cpp = '${{ matrix.ndk_arch }}-linux-android${{ matrix.api }}-clang++'
+          ar = '${{ matrix.ndk_arch }}-linux-android-ar'
+          strip = '${{ matrix.ndk_arch }}-linux-android-strip'
+          pkgconfig = 'pkg-config'
+          
+          [host_machine]
+          system = 'linux'
+          cpu_family = '${{ matrix.ndk_arch == 'arm64' && 'aarch64' || matrix.ndk_arch == 'arm' && 'arm' || matrix.ndk_arch }}'
+          cpu = '${{ matrix.ndk_arch }}'
+          endian = 'little'
+          
+          [properties]
+          c_args = ['-fPIC']
+          cpp_args = ['-fPIC', '-frtti', '-fexceptions']
+          link_args = ['-fPIC']
+          EOF
+          
+          export ANDROID_NDK_HOME=${{ env.ANDROID_NDK_HOME }}
+          export PATH=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH
+          
+          meson setup build-android-${{ matrix.arch }} \
+            --cross-file cross-android-${{ matrix.arch }}.meson \
+            -Dbuildtype=release \
+            -Dvulkan=disabled \
+            -Dlua=disabled \
+            -Djavascript=disabled \
+            -Dandroid=true
+
+      - name: Build Android
+        run: |
+          cd vlc-source
+          export ANDROID_NDK_HOME=${{ env.ANDROID_NDK_HOME }}
+          export PATH=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH
+          ninja -C build-android-${{ matrix.arch }} -j$(nproc)
+
+      - name: Collect artifacts
+        run: |
+          cd vlc-source
+          BUILD_DIR="build-android-${{ matrix.arch }}"
+          mkdir -p ../../dist/android-${{ matrix.arch }}/include/vlc
+          mkdir -p ../../dist/android-${{ matrix.arch }}/lib
+          
+          find "$BUILD_DIR" -name "*.h" -path "*/include/*" -exec cp {} ../../dist/android-${{ matrix.arch }}/include/vlc/ \;
+          find "$BUILD_DIR/../include" -name "*.h" -exec cp {} ../../dist/android-${{ matrix.arch }}/include/vlc/ \; 2>/dev/null || true
+          find "$BUILD_DIR" \( -name "*.so" -o -name "*.a" \) -exec cp {} ../../dist/android-${{ matrix.arch }}/lib/ \;
+
+      - name: Verify artifacts
+        run: |
+          DIST_DIR="../dist/android-${{ matrix.arch }}"
+          echo "=== Library files ==="
+          ls -lh "$DIST_DIR/lib/"
+          echo ""
+          echo "=== Header files ==="
+          ls -lh "$DIST_DIR/include/vlc/" | head -30
+
+      - name: Create package
+        run: |
+          cd dist
+          zip -r "libvlc-android-${{ matrix.arch }}-built.zip" "android-${{ matrix.arch }}/"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: libvlc-android-${{ matrix.arch }}-built
+          path: |
+            dist/android-${{ matrix.arch }}/
+            dist/libvlc-android-${{ matrix.arch }}-built.zip
+          retention-days: 30
+
+  build-linux:
+    name: Build Linux-${{ matrix.arch }}
+    if: contains(github.event.inputs.target_os, 'linux') || github.event.inputs.target_os == ''
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            cross_compile: false
+          - arch: arm64
+            cross_compile: true
+          - arch: x86
+            cross_compile: true
+    timeout-minutes: 120
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          sudo apt-get update && sudo apt-get install -y \
+            meson ninja-build pkg-config \
+            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
+            gcc-i686-linux-gnu g++-i686-linux-gnu \
+            libc6-dev-arm64-cross libc6-dev-i386-cross
+
+      - name: Clone VLC source
+        run: |
+          git clone --depth 1 --branch ${{ github.event.inputs.vlc_branch }} ${{ env.VLC_REPO_URL }} vlc-source
+
+      - name: Configure Linux build
+        run: |
+          cd vlc-source
+          mkdir -p build-linux-${{ matrix.arch }}
+          
+          if [ "${{ matrix.cross_compile }}" = "true" ]; then
+            if [ "${{ matrix.arch }}" = "arm64" ]; then
+              cat > cross-linux-arm64.meson << EOF
+              [binaries]
+              c = 'aarch64-linux-gnu-gcc'
+              cpp = 'aarch64-linux-gnu-g++'
+              ar = 'aarch64-linux-gnu-ar'
+              strip = 'aarch64-linux-gnu-strip'
+              pkgconfig = 'aarch64-linux-gnu-pkg-config'
+              
+              [host_machine]
+              system = 'linux'
+              cpu_family = 'aarch64'
+              cpu = 'arm64'
+              endian = 'little'
+              EOF
+              CROSS_FILE="cross-linux-arm64.meson"
+            else
+              cat > cross-linux-x86.meson << EOF
+              [binaries]
+              c = 'i686-linux-gnu-gcc'
+              cpp = 'i686-linux-gnu-g++'
+              ar = 'i686-linux-gnu-ar'
+              strip = 'i686-linux-gnu-strip'
+              pkgconfig = 'i686-linux-gnu-pkg-config'
+              
+              [host_machine]
+              system = 'linux'
+              cpu_family = 'x86'
+              cpu = 'i686'
+              endian = 'little'
+              EOF
+              CROSS_FILE="cross-linux-x86.meson"
+            fi
+            MESON_ARGS="--cross-file $CROSS_FILE"
+          else
+            MESON_ARGS=""
+          fi
+          
+          meson setup build-linux-${{ matrix.arch }} $MESON_ARGS \
+            -Dbuildtype=release \
+            -Dvulkan=disabled
+
+      - name: Build Linux
+        run: |
+          cd vlc-source
+          ninja -C build-linux-${{ matrix.arch }} -j$(nproc)
+
+      - name: Collect artifacts
+        run: |
+          cd vlc-source
+          BUILD_DIR="build-linux-${{ matrix.arch }}"
+          mkdir -p ../../dist/linux-${{ matrix.arch }}/include/vlc
+          mkdir -p ../../dist/linux-${{ matrix.arch }}/lib
+          
+          find "$BUILD_DIR" -name "*.h" -path "*/include/*" -exec cp {} ../../dist/linux-${{ matrix.arch }}/include/vlc/ \;
+          find "$BUILD_DIR/../include" -name "*.h" -exec cp {} ../../dist/linux-${{ matrix.arch }}/include/vlc/ \; 2>/dev/null || true
+          find "$BUILD_DIR" \( -name "*.so*" -o -name "*.a" \) -exec cp {} ../../dist/linux-${{ matrix.arch }}/lib/ \;
+
+      - name: Verify artifacts
+        run: |
+          DIST_DIR="../dist/linux-${{ matrix.arch }}"
+          echo "=== Library files ==="
+          ls -lh "$DIST_DIR/lib/"
+          echo ""
+          echo "=== Header files ==="
+          ls -lh "$DIST_DIR/include/vlc/" | head -30
+
+      - name: Create package
+        run: |
+          cd dist
+          zip -r "libvlc-linux-${{ matrix.arch }}-built.zip" "linux-${{ matrix.arch }}/"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: libvlc-linux-${{ matrix.arch }}-built
+          path: |
+            dist/linux-${{ matrix.arch }}/
+            dist/libvlc-linux-${{ matrix.arch }}-built.zip
+          retention-days: 30
+
+  build-windows:
+    name: Build Windows-${{ matrix.arch }}
+    if: contains(github.event.inputs.target_os, 'windows') || github.event.inputs.target_os == ''
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            vs_arch: x64
+            meson_arch: x86_64
+          - arch: arm64
+            vs_arch: arm64
+            meson_arch: arm64
+          - arch: x86
+            vs_arch: x86
+            meson_arch: x86
+    timeout-minutes: 120
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          choco install meson ninja pkg-config -y
+          refreshenv
+
+      - name: Clone VLC source
+        run: |
+          git clone --depth 1 --branch ${{ github.event.inputs.vlc_branch }} ${{ env.VLC_REPO_URL }} vlc-source
+
+      - name: Configure Windows build (MSVC)
+        run: |
+          cd vlc-source
+          mkdir build-windows-${{ matrix.arch }}
+          
+          cat > cross-windows-${{ matrix.arch }}.meson << EOF
+          [binaries]
+          c = 'cl'
+          cpp = 'cl'
+          ar = 'lib'
+          link = 'link'
+          pkgconfig = 'pkg-config'
+          
+          [host_machine]
+          system = 'windows'
+          cpu_family = '${{ matrix.meson_arch }}'
+          cpu = '${{ matrix.meson_arch }}'
+          endian = 'little'
+          
+          [properties]
+          c_args = ['/MD', '/D_CRT_SECURE_NO_WARNINGS']
+          cpp_args = ['/MD', '/D_CRT_SECURE_NO_WARNINGS', '/EHsc']
+          link_args = ['/MANIFEST:NO']
+          EOF
+          
+          # Setup MSVC environment
+          & "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" ${{ matrix.vs_arch }}
+          
+          meson setup build-windows-${{ matrix.arch }} \
+            --cross-file cross-windows-${{ matrix.arch }}.meson \
+            -Dbuildtype=release \
+            -Dvulkan=disabled \
+            -Dlua=disabled \
+            -Djavascript=disabled
+
+      - name: Build Windows
+        run: |
+          cd vlc-source
+          & "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" ${{ matrix.vs_arch }}
+          ninja -C build-windows-${{ matrix.arch }} -j$env:NUMBER_OF_PROCESSORS
+
+      - name: Collect artifacts
+        run: |
+          cd vlc-source
+          $BUILD_DIR = "build-windows-${{ matrix.arch }}"
+          $DIST_DIR = "..\..\dist\windows-${{ matrix.arch }}"
+          
+          New-Item -ItemType Directory -Force -Path "$DIST_DIR\include\vlc"
+          New-Item -ItemType Directory -Force -Path "$DIST_DIR\lib"
+          
+          Get-ChildItem "$BUILD_DIR" -Recurse -Filter "*.h" | Where-Object { $_.FullName -match "include" } | Copy-Item -Destination "$DIST_DIR\include\vlc"
+          Get-ChildItem "..\include" -Recurse -Filter "*.h" | Copy-Item -Destination "$DIST_DIR\include\vlc" -ErrorAction SilentlyContinue
+          Get-ChildItem "..\src" -Recurse -Filter "vlc*.h" | Copy-Item -Destination "$DIST_DIR\include\vlc" -ErrorAction SilentlyContinue
+          
+          Get-ChildItem "$BUILD_DIR" -Recurse -Filter "*.lib", "*.dll", "*.pdb" | Copy-Item -Destination "$DIST_DIR\lib"
+
+      - name: Verify artifacts
+        run: |
+          $DIST_DIR = "..\dist\windows-${{ matrix.arch }}"
+          Write-Host "=== Library files ==="
+          Get-ChildItem "$DIST_DIR\lib" | Format-Table Name, Length
+          Write-Host ""
+          Write-Host "=== Header files ==="
+          Get-ChildItem "$DIST_DIR\include\vlc" | Select-Object -First 30 | Format-Table Name, Length
+
+      - name: Create package
+        run: |
+          cd dist
+          Compress-Archive -Path "windows-${{ matrix.arch }}" -DestinationPath "libvlc-windows-${{ matrix.arch }}-built.zip" -Force
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: libvlc-windows-${{ matrix.arch }}-built
+          path: |
+            dist/windows-${{ matrix.arch }}/
+            dist/libvlc-windows-${{ matrix.arch }}-built.zip
+          retention-days: 30
+
+  create-release:
+    name: Create GitHub Release
+    needs: [build-ios-macos, build-android, build-linux, build-windows]
+    if: github.event_name == 'workflow_dispatch' && inputs.create_release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./artifacts
+          pattern: libvlc-*-built
+          merge-multiple: false
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p ./release-assets
+          find ./artifacts -name "*-built.zip" -exec cp {} ./release-assets/ \;
+          ls -la ./release-assets/
+
+      - name: Determine release tag
+        id: tag
+        run: |
+          BRANCH="${{ github.event.inputs.vlc_branch }}"
+          BRANCH_CLEAN=$(echo "$BRANCH" | sed 's/[^a-zA-Z0-9]/-/g')
+          if [ -n "${{ github.event.inputs.release_tag }}" ]; then
+            echo "tag=${{ github.event.inputs.release_tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=vlc-${BRANCH_CLEAN}-$(date +%Y%m%d)" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: "LibVLC Built from Source ${{ steps.tag.outputs.tag }}"
+          body: |
+            ## LibVLC Built from Source
+            
+            Compiled from VLC source repository.
+            
+            **Source:** https://code.videolan.org/videolan/vlc.git
+            **Branch/Tag:** ${{ github.event.inputs.vlc_branch }}
+            **Build Date:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+            **Commit:** ${{ github.sha }}
+            
+            ### Included Platforms
+            - iOS (arm64, armv7)
+            - Android (arm64, armv7, x86_64, x86)
+            - macOS (arm64, x86_64)
+            - Linux (x86_64, arm64, x86)
+            - Windows (x86_64, arm64, x86)
+            
+            Each package contains:
+            - `include/vlc/` - C/C++ headers
+            - `lib/` - Static and dynamic libraries
+          draft: false
+          prerelease: true
+          files: ./release-assets/*.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,263 +1,275 @@
 # libvlc-gen
 
-> **Automated extraction and building of static LibVLC binaries for iOS/tvOS**
+Universal LibVLC Binary Generator - Automates fetching, building, and packaging LibVLC for all platforms.
 
-`libvlc-gen` provides two ways to obtain production-ready static LibVLC libraries (`libvlc.a`, `libvlccore.a`) and C headers for embedding in jailbreak tweaks, Theos projects, and embedded iOS applications.
+## Overview
 
----
+`libvlc-gen` provides two primary tools for obtaining LibVLC binaries:
 
-## 🎯 Features
+1. **Local Generator** (`tools/generate_libvlc.py`) - Cross-platform Python CLI for fetching prebuilt binaries or building from source locally
+2. **GitHub Actions Pipelines** - Automated CI/CD workflows for matrix builds across all supported platforms
 
-| Tool | Description | Platform |
-|------|-------------|----------|
-| **Python CLI** (`tools/generate_libvlc.py`) | Downloads pre-built static frameworks from VideoLAN releases | Linux, macOS, Windows |
-| **GitHub Action: Artifacts** (`.github/workflows/generate-artifacts.yml`) | CI/CD pipeline to fetch & package official binaries | Ubuntu, macOS |
-| **GitHub Action: From Source** (`.github/workflows/build-from-source.yml`) | Compiles LibVLC from VideoLAN source on macOS runners | macOS (Apple Silicon) |
+## Supported Platforms
 
----
+| OS | Architectures | Fetch | Build |
+|---|---|---|---|
+| iOS | arm64, armv7 | ✓ | ✓ (macOS runner) |
+| Android | arm64, armv7, x86_64, x86 | ✓ | ✓ (Linux runner + NDK) |
+| macOS | arm64, x86_64 | ✓ | ✓ (macOS runner) |
+| Linux | x86_64, arm64, x86 | ✓ | ✓ (Linux runner) |
+| Windows | x86_64, arm64, x86 | ✓ | ✓ (Windows runner) |
 
-## 📦 Quickstart
+## Quick Start
 
-### Local Generation (Python)
+### Prerequisites
+
+- Python 3.8+
+- Git
+- Platform-specific build tools (for `--mode build`)
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/libvlc-gen.git
+git clone https://github.com/yourusername/libvlc-gen.git
 cd libvlc-gen
 
-# Generate for iOS arm64 (default)
-python tools/generate_libvlc.py
-
-# Generate for iOS arm64e
-python tools/generate_libvlc.py --arch arm64e
-
-# Generate for tvOS arm64
-python tools/generate_libvlc.py --target-os tvos --arch arm64
-
-# Custom output directory
-python tools/generate_libvlc.py --output-dir ./my_dist
+# Install Python dependencies
+pip install -r requirements.txt
 ```
 
-**Output structure:**
+### Fetch Prebuilt Binaries (Recommended)
+
+```bash
+# Auto-detect host OS/arch and fetch
+python tools/generate_libvlc.py --mode fetch
+
+# Fetch for specific target
+python tools/generate_libvlc.py --mode fetch --target-os android --arch arm64
+python tools/generate_libvlc.py --mode fetch --target-os ios --arch arm64
+python tools/generate_libvlc.py --mode fetch --target-os windows --arch x86_64
+python tools/generate_libvlc.py --mode fetch --target-os linux --arch x86_64
+python tools/generate_libvlc.py --mode fetch --target-os macos --arch arm64
+
+# Create zip package
+python tools/generate_libvlc.py --mode fetch --target-os android --arch arm64 --package
+```
+
+### Build from Source
+
+```bash
+# Build for current platform (requires build tools)
+python tools/generate_libvlc.py --mode build --target-os linux --arch x86_64
+
+# Build specific version from branch/tag
+python tools/generate_libvlc.py --mode build --target-os macos --arch arm64 --branch 3.0.20
+
+# Build with custom source URL
+python tools/generate_libvlc.py --mode build --target-os windows --arch x86_64 --source-url https://code.videolan.org/videolan/vlc.git
+```
+
+## Output Structure
+
 ```
 dist/
-├── include/
-│   └── vlc/
-│       ├── vlc.h
-│       ├── vlc_common.h
-│       ├── vlc_version.h
-│       └── ... (all public headers)
-└── lib/
-    ├── libvlc.a
-    └── libvlccore.a
+└── <target-os>-<arch>/
+    ├── include/
+    │   └── vlc/
+    │       ├── vlc.h
+    │       ├── vlc_common.h
+    │       ├── vlc_version.h
+    │       └── ... (all public headers)
+    └── lib/
+        ├── libvlc.a / libvlc.lib / libvlc.dll.a
+        ├── libvlccore.a / libvlccore.lib / libvlccore.dll.a
+        ├── libvlc.so / libvlc.dylib / libvlc.dll
+        └── libvlccore.so / libvlccore.dylib / libvlccore.dll
 ```
 
-### GitHub Actions (Automated)
+## GitHub Actions Workflows
 
-#### 1. Generate Artifacts Workflow
-- **Triggers**: Manual (`workflow_dispatch`), push to `main`, weekly schedule
-- **Runner**: `ubuntu-latest` (iOS) or `macos-latest` (tvOS)
-- **Artifacts**: `libvlc-ios-arm64.zip`, `libvlc-ios-arm64e.zip`, `libvlc-tvos-arm64.zip`
+### 1. Fetch Artifacts Workflow (`.github/workflows/fetch-artifacts.yml`)
+
+Downloads official VideoLAN nightly builds for all platforms.
+
+**Triggers:**
+- Manual: `workflow_dispatch` with OS/arch selection
+- Scheduled: Daily at 02:00 UTC
+
+**Usage:**
+1. Go to Actions → "Fetch LibVLC Prebuilt Artifacts"
+2. Click "Run workflow"
+3. Select target OSes (comma-separated) or leave blank for all
+4. Optionally enable "Create Release" to publish to GitHub Releases
+
+**Artifacts produced:**
+- `libvlc-<os>-<arch>-prebuilt.zip` - Packaged headers + libraries
+- Individual artifacts for each platform/arch combination
+
+### 2. Build from Source Workflow (`.github/workflows/build-from-source.yml`)
+
+Compiles LibVLC from source using native toolchains on each platform.
+
+**Triggers:**
+- Manual: `workflow_dispatch` with branch/tag parameter
+
+**Usage:**
+1. Go to Actions → "Build LibVLC from Source"
+2. Click "Run workflow"
+3. Enter VLC branch/tag (e.g., `master`, `3.0`, `4.0.0`)
+4. Select target OSes or leave blank for all
+5. Optionally enable "Create Release"
+
+**Build Matrix:**
+- **iOS/macOS**: `macos-14` runner with Xcode + Meson/Ninja
+- **Android**: `ubuntu-latest` with Android NDK r27b + Meson
+- **Linux**: `ubuntu-latest` with GCC/Clang cross-compilers + Meson
+- **Windows**: `windows-latest` with MSVC 2022 + Meson/Ninja
+
+**Artifacts produced:**
+- `libvlc-<os>-<arch>-built.zip` - Packaged headers + libraries
+- Individual artifacts for each platform/arch combination
+
+## Local Development Requirements
+
+### Linux (Ubuntu/Debian)
+```bash
+sudo apt-get update && sudo apt-get install -y \
+  build-essential meson ninja-build pkg-config \
+  gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
+  gcc-i686-linux-gnu g++-i686-linux-gnu
+```
+
+### macOS
+```bash
+brew install meson ninja pkg-config
+# Xcode Command Line Tools required
+xcode-select --install
+```
+
+### Windows
+```powershell
+# Using Chocolatey
+choco install meson ninja pkg-config -y
+# Visual Studio 2022 with C++ workload required
+```
+
+### Android (for local builds)
+- Android NDK r27b+
+- Set `ANDROID_NDK_HOME` environment variable
+
+## Command Reference
 
 ```bash
-# Trigger manually via GitHub CLI
-gh workflow run generate-artifacts.yml -f target_os=ios -f arch=arm64
-
-# Or via GitHub UI: Actions → Generate LibVLC Artifacts → Run workflow
+python tools/generate_libvlc.py --help
 ```
 
-#### 2. Build from Source Workflow
-- **Trigger**: Manual only (`workflow_dispatch`)
-- **Runner**: `macos-14` (Apple Silicon with Xcode)
-- **Builds**: Full LibVLC from `videolan/vlc` source
+```
+usage: generate_libvlc.py [-h] [--target-os {ios,android,macos,linux,windows}]
+                          [--arch {arm64,armv7,x86_64,x86}]
+                          [--mode {fetch,build}] [--output-dir OUTPUT_DIR]
+                          [--source-url SOURCE_URL] [--branch BRANCH]
+                          [--package] [--verbose]
 
+Universal LibVLC Binary Generator
+
+options:
+  -h, --help            show this help message and exit
+  --target-os           Target OS (default: auto-detect)
+  --arch                Target architecture (default: auto-detect)
+  --mode                Operation mode: fetch prebuilt or build from source (default: fetch)
+  --output-dir          Output directory (default: ./dist)
+  --source-url          VLC source repository URL (default: https://code.videolan.org/videolan/vlc.git)
+  --branch              Git branch/tag to build (default: master)
+  --package             Create zip package of output
+  --verbose             Enable verbose output
+```
+
+## Examples
+
+### Generate Android ARM64 for mobile app development
 ```bash
-# Trigger with specific version
-gh workflow run build-from-source.yml -f vlc_version=3.0.20 -f arch=arm64
-
-# Build debug version
-gh workflow run build-from-source.yml -f vlc_version=master -f arch=arm64 -f enable_debug=true
+python tools/generate_libvlc.py --mode fetch --target-os android --arch arm64 --package
+# Output: dist/android-arm64/ + dist/libvlc-android-arm64-prebuilt.zip
 ```
 
----
-
-## 🔧 Consuming in Your Project
-
-### Theos Makefile (iOS Jailbreak Tweaks)
-
-```makefile
-# Theos makefile for a tweak using libvlc
-TWEAK_NAME = MyVLCTweak
-MyVLCTweak_FILES = Tweak.xm
-MyVLCTweak_CFLAGS = -I$(THEOS_PROJECT_DIR)/libvlc-gen/dist/include
-MyVLCTweak_LDFLAGS = -L$(THEOS_PROJECT_DIR)/libvlc-gen/dist/lib -lvlc -lvlccore
-MyVLCTweak_FRAMEWORKS = AudioToolbox VideoToolbox CoreMedia CoreVideo AVFoundation
-
-include $(THEOS_MAKE_PATH)/tweak.mk
+### Generate iOS ARM64 for iOS app
+```bash
+python tools/generate_libvlc.py --mode fetch --target-os ios --arch arm64 --package
+# Output: dist/ios-arm64/ + dist/libvlc-ios-arm64-prebuilt.zip
 ```
 
-### CMake (Cross-platform)
+### Generate Windows x86_64 for desktop app
+```bash
+python tools/generate_libvlc.py --mode fetch --target-os windows --arch x86_64 --package
+# Output: dist/windows-x86_64/ + dist/libvlc-windows-x86_64-prebuilt.zip
+```
 
+### Build latest VLC 4.0 from source for Linux
+```bash
+python tools/generate_libvlc.py --mode build --target-os linux --arch x86_64 --branch 4.0 --package
+```
+
+### Cross-compile Linux ARM64 from x86_64 host
+```bash
+python tools/generate_libvlc.py --mode build --target-os linux --arch arm64
+```
+
+## Integrating in Your Project
+
+### CMake (C/C++)
 ```cmake
-cmake_minimum_required(VERSION 3.16)
-project(MyVLCApp LANGUAGES C CXX)
+# Find LibVLC
+find_path(VLC_INCLUDE_DIR vlc/vlc.h PATHS ${CMAKE_SOURCE_DIR}/libvlc-android-arm64/include)
+find_library(VLC_LIBRARY NAMES vlc PATHS ${CMAKE_SOURCE_DIR}/libvlc-android-arm64/lib)
+find_library(VLCCORE_LIBRARY NAMES vlccore PATHS ${CMAKE_SOURCE_DIR}/libvlc-android-arm64/lib)
 
-# Path to libvlc-gen dist directory
-set(LIBVLC_DIST "${CMAKE_SOURCE_DIR}/libvlc-gen/dist")
-
-include_directories(${LIBVLC_DIST}/include)
-link_directories(${LIBVLC_DIST}/lib)
-
-add_executable(my_app main.c)
-target_link_libraries(my_app vlc vlccore)
-
-# iOS specific frameworks
-if(CMAKE_SYSTEM_NAME STREQUAL "Darwin" AND CMAKE_OSX_SYSROOT MATCHES "iphone")
-    find_library(AUDIOTOOLBOX AudioToolbox)
-    find_library(VIDEOTOOLBOX VideoToolbox)
-    find_library(COREMEDIA CoreMedia)
-    find_library(COREVIDEO CoreVideo)
-    find_library(AVFOUNDATION AVFoundation)
-    target_link_libraries(my_app ${AUDIOTOOLBOX} ${VIDEOTOOLBOX} ${COREMEDIA} ${COREVIDEO} ${AVFOUNDATION})
-endif()
+target_include_directories(your_target PRIVATE ${VLC_INCLUDE_DIR})
+target_link_libraries(your_target PRIVATE ${VLC_LIBRARY} ${VLCCORE_LIBRARY})
 ```
 
-### Xcode Project
-
-1. **Header Search Paths**: Add `$(SRCROOT)/libvlc-gen/dist/include`
-2. **Library Search Paths**: Add `$(SRCROOT)/libvlc-gen/dist/lib`
-3. **Other Linker Flags**: `-lvlc -lvlccore`
-4. **Frameworks**: Add `AudioToolbox.framework`, `VideoToolbox.framework`, `CoreMedia.framework`, `CoreVideo.framework`, `AVFoundation.framework`
-
-### Plain Makefile
-
-```makefile
-CC = clang
-CFLAGS = -Ilibvlc-gen/dist/include -arch arm64 -isysroot $(SDKROOT)
-LDFLAGS = -Llibvlc-gen/dist/lib -lvlc -lvlccore \
-          -framework AudioToolbox -framework VideoToolbox \
-          -framework CoreMedia -framework CoreVideo -framework AVFoundation
-
-TARGET = my_vlc_app
-SRCS = main.c
-
-all: $(TARGET)
-
-$(TARGET): $(SRCS)
-	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
-
-clean:
-	rm -f $(TARGET)
+### Android (Gradle)
+```gradle
+// Copy dist/android-arm64/lib/*.so to src/main/jniLibs/arm64-v8a/
+// Copy dist/android-arm64/include/vlc/ to src/main/cpp/include/vlc/
 ```
 
----
+### iOS/macOS (Xcode)
+- Add `dist/ios-arm64/include` to Header Search Paths
+- Add `dist/ios-arm64/lib` to Library Search Paths
+- Link `libvlc.a`, `libvlccore.a` and required system frameworks
 
-## 📋 Requirements
+## License
 
-| Component | Version |
-|-----------|---------|
-| Python | 3.7+ (stdlib only) |
-| GitHub Actions | Ubuntu-latest / macOS-14 |
-| Xcode (source build) | 15+ (included in macOS-14) |
-| iOS Deployment Target | 12.0+ |
+This project (build tools, scripts, workflows) is licensed under the **MIT License**.
 
----
+**Important:** LibVLC binaries generated by this tool are licensed under **GPLv2+** (GNU General Public License version 2 or later). When distributing LibVLC binaries, you must comply with GPLv2+ terms including providing source code access.
 
-## 🏗️ Architecture
+See [LICENSE](LICENSE) for details.
 
-```
-libvlc-gen/
-├── .github/workflows/
-│   ├── generate-artifacts.yml   # Downloads pre-built frameworks
-│   └── build-from-source.yml    # Compiles from VLC source
-├── tools/
-│   └── generate_libvlc.py       # Standalone Python generator
-├── dist/                        # Output (gitignored)
-│   ├── include/vlc/             # C headers
-│   └── lib/                     # Static libraries (.a)
-├── .gitignore
-├── requirements.txt             # Empty (stdlib only)
-├── LICENSE                      # MIT
-└── README.md
-```
-
-### generate-artifacts.yml Flow
-```
-Checkout → Setup Python → Run generate_libvlc.py → Zip dist/ → Upload Artifact → (Optional) Create Release
-```
-
-### build-from-source.yml Flow
-```
-Checkout VLC source → Install deps (brew) → Run extras/package/ios/build.sh -a arm64
-    → Extract framework → Copy headers/libs to dist/ → Zip → Upload Artifact
-```
-
----
-
-## 🔍 Verification
-
-After generation, verify the output:
-
-```bash
-# Check library sizes (should be ~20-50 MB each)
-ls -lh dist/lib/
-
-# Verify headers
-ls dist/include/vlc/ | head -20
-
-# Test linking (macOS)
-clang -Ilibvlc-gen/dist/include -Llibvlc-gen/dist/lib test.c -lvlc -lvlccore
-```
-
-Expected library sizes (approximate):
-- `libvlc.a`: 25-45 MB
-- `libvlccore.a`: 15-30 MB
-
----
-
-## 📝 Version Matrix
-
-| LibVLC Version | iOS arm64 | iOS arm64e | tvOS arm64 | Source Build |
-|----------------|-----------|------------|------------|--------------|
-| 3.6.x          | ✅        | ✅         | ✅         | ✅           |
-| 3.5.x          | ✅        | ❌         | ✅         | ✅           |
-| 3.0.x (LTS)    | ✅        | ❌         | ✅         | ✅           |
-| master (dev)   | ❌        | ❌         | ❌         | ✅           |
-
-> **Note**: Pre-built binaries are fetched from VideoLAN's official GitHub releases. Source builds compile whatever tag/branch you specify.
-
----
-
-## 🤝 Contributing
+## Contributing
 
 1. Fork the repository
 2. Create a feature branch
-3. Test locally with `python tools/generate_libvlc.py`
-4. Submit a PR
+3. Make your changes
+4. Test across platforms
+5. Submit a Pull Request
 
-### Adding New Versions
-Update `VLC_RELEASES` dictionary in `tools/generate_libvlc.py` with new URLs and SHA256 hashes.
+## Troubleshooting
 
----
+### Fetch fails with 404
+Nightly builds may not exist for all arch/OS combinations. Try a different architecture or use `--mode build`.
 
-## 📄 License
+### Build fails on macOS/iOS
+Ensure Xcode Command Line Tools are installed and `xcode-select -p` points to a valid SDK.
 
-MIT License - see [LICENSE](LICENSE) for details.
+### Build fails on Windows
+Ensure Visual Studio 2022 with "Desktop development with C++" workload is installed.
 
-LibVLC itself is licensed under **LGPL v2.1+**. This project only packages and distributes the binaries; compliance with LGPL is the responsibility of the end user.
+### Android build fails
+Verify `ANDROID_NDK_HOME` is set and NDK version is r27b+.
 
----
+## Links
 
-## 🙏 Acknowledgments
-
-- [VideoLAN](https://www.videolan.org/) for LibVLC
-- [VLC-iOS](https://github.com/videolan/vlc-ios) for MobileVLCKit frameworks
-- [CocoaPods](https://cocoapods.org/) for binary distribution
-
----
-
-## 📞 Support
-
-- **Issues**: [GitHub Issues](https://github.com/your-org/libvlc-gen/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/your-org/libvlc-gen/discussions)
-- **Documentation**: This README + inline code comments
+- [VLC Source Repository](https://code.videolan.org/videolan/vlc.git)
+- [VideoLAN Nightly Artifacts](https://artifacts.videolan.org/vlc/nightly)
+- [LibVLC Documentation](https://wiki.videolan.org/LibVLC/)
+- [GPLv2 License](https://www.gnu.org/licenses/old-licenses/gpl-2.0.html)

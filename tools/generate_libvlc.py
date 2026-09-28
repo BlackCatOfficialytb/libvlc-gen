@@ -430,25 +430,16 @@ def fetch_windows_prebuilt(arch: str, output_dir: Path) -> bool:
         organize_output(libs, headers, output_dir, "windows", arch)
     return True
 
-    url = f"{VLC_NIGHTLY_BASE}/win{'' if arch == 'x86_64' else '32'}/libvlc-win{'' if arch == 'x86_64' else '32'}-{win_arch}.zip"
-    with tempfile.TemporaryDirectory() as tmp:
-        archive = Path(tmp) / f"libvlc-win-{win_arch}.zip"
-        if not download_file(url, archive):
-            return False
-        extract_dir = Path(tmp) / "extracted"
-        if not extract_archive(archive, extract_dir):
-            return False
-        libs, headers = find_vlc_artifacts(extract_dir, "windows")
-        organize_output(libs, headers, output_dir, "windows", arch)
-    return True
-
 
 def build_from_source(target_os: str, arch: str, output_dir: Path, source_url: str, branch: str = "master") -> bool:
     Logger.info(f"Building LibVLC from source for {target_os}-{arch}")
     
     with tempfile.TemporaryDirectory() as tmp:
         src_dir = Path(tmp) / "vlc"
-        run_cmd(["git", "clone", "--depth", "1", "--branch", branch, source_url, str(src_dir)])
+        Logger.info(f"Cloning {source_url} (branch: {branch})")
+        result = run_cmd(["git", "clone", "--depth", "1", "--branch", branch, source_url, str(src_dir)])
+        if result.returncode != 0:
+            return False
         
         if target_os == "android":
             return build_android(src_dir, arch, output_dir)
@@ -464,27 +455,169 @@ def build_from_source(target_os: str, arch: str, output_dir: Path, source_url: s
 
 
 def build_android(src_dir: Path, arch: str, output_dir: Path) -> bool:
-    Logger.warning("Android build requires NDK and proper toolchain setup")
-    Logger.info("This is a placeholder - full Android build requires extensive NDK configuration")
-    return False
-
-
-def build_ios(src_dir: Path, arch: str, output_dir: Path) -> bool:
-    Logger.warning("iOS build requires Xcode and proper toolchain setup")
-    Logger.info("This is a placeholder - full iOS build requires extensive Xcode configuration")
-    return False
-
-
-def build_macos(src_dir: Path, arch: str, output_dir: Path) -> bool:
-    build_dir = src_dir / "build"
+    ndk_home = os.environ.get("ANDROID_NDK_HOME")
+    if not ndk_home:
+        Logger.error("ANDROID_NDK_HOME not set. Install Android NDK r27b+ and set ANDROID_NDK_HOME")
+        return False
+    
+    abi_map = {"arm64": "arm64-v8a", "armv7": "armeabi-v7a", "x86_64": "x86_64", "x86": "x86"}
+    ndk_arch_map = {"arm64": "aarch64", "armv7": "arm", "x86_64": "x86_64", "x86": "i686"}
+    api_map = {"arm64": 21, "armv7": 21, "x86_64": 21, "x86": 21}
+    
+    abi = abi_map.get(arch)
+    ndk_arch = ndk_arch_map.get(arch)
+    api = api_map.get(arch)
+    
+    if not all([abi, ndk_arch, api]):
+        Logger.error(f"Unsupported Android arch: {arch}")
+        return False
+    
+    build_dir = src_dir / f"build-android-{arch}"
     build_dir.mkdir(exist_ok=True)
+    
+    cross_file = src_dir / f"cross-android-{arch}.meson"
+    cross_content = f"""
+[binaries]
+c = '{ndk_arch}-linux-android{api}-clang'
+cpp = '{ndk_arch}-linux-android{api}-clang++'
+ar = '{ndk_arch}-linux-android-ar'
+strip = '{ndk_arch}-linux-android-strip'
+pkgconfig = 'pkg-config'
+
+[host_machine]
+system = 'linux'
+cpu_family = '{'aarch64' if arch == 'arm64' else 'arm' if arch == 'armv7' else arch}'
+cpu = '{ndk_arch}'
+endian = 'little'
+
+[properties]
+c_args = ['-fPIC']
+cpp_args = ['-fPIC', '-frtti', '-fexceptions']
+link_args = ['-fPIC']
+"""
+    cross_file.write_text(cross_content.strip())
+    
+    env = os.environ.copy()
+    env["PATH"] = f"{ndk_home}/toolchains/llvm/prebuilt/linux-x86_64/bin:" + env["PATH"]
+    env["ANDROID_NDK_HOME"] = ndk_home
     
     meson_args = [
         "meson", "setup", str(build_dir),
-        f"-Dbuildtype=release",
-        f"-Dc_args=-arch {arch}",
-        f"-Dcpp_args=-arch {arch}",
-        f"-Dlink_args=-arch {arch}",
+        f"--cross-file={cross_file}",
+        "-Dbuildtype=release",
+        "-Dvulkan=disabled",
+        "-Dlua=disabled",
+        "-Djavascript=disabled",
+        "-Dandroid=true",
+    ]
+    
+    result = run_cmd(meson_args, cwd=src_dir, env=env)
+    if result.returncode != 0:
+        return False
+    
+    result = run_cmd(["ninja", "-C", str(build_dir), "-j$(nproc)"], cwd=src_dir, env=env)
+    if result.returncode != 0:
+        return False
+    
+    libs, headers = find_vlc_artifacts(build_dir, "android")
+    organize_output(libs, headers, output_dir, "android", arch)
+    return True
+
+
+def build_ios(src_dir: Path, arch: str, output_dir: Path) -> bool:
+    sdk_map = {"arm64": "iphoneos", "armv7": "iphoneos"}
+    deployment_map = {"arm64": "13.0", "armv7": "13.0"}
+    
+    sdk = sdk_map.get(arch)
+    deployment = deployment_map.get(arch)
+    
+    if not sdk:
+        Logger.error(f"Unsupported iOS arch: {arch}")
+        return False
+    
+    build_dir = src_dir / f"build-ios-{arch}"
+    build_dir.mkdir(exist_ok=True)
+    
+    cross_file = src_dir / f"cross-ios-{arch}.meson"
+    cpu_family = "aarch64" if arch == "arm64" else "arm"
+    cross_content = f"""
+[binaries]
+c = 'xcrun -sdk {sdk} clang'
+cpp = 'xcrun -sdk {sdk} clang++'
+ar = 'xcrun -sdk {sdk} ar'
+strip = 'xcrun -sdk {sdk} strip'
+pkgconfig = 'pkg-config'
+
+[host_machine]
+system = 'darwin'
+cpu_family = '{cpu_family}'
+cpu = '{arch}'
+endian = 'little'
+
+[properties]
+sys_root = '/Applications/Xcode.app/Contents/Developer/Platforms/{sdk}.platform/Developer/SDKs/{sdk}.sdk'
+c_args = ['-arch', '{arch}', '-isysroot', '/Applications/Xcode.app/Contents/Developer/Platforms/{sdk}.platform/Developer/SDKs/{sdk}.sdk', '-miphoneos-version-min={deployment}']
+cpp_args = ['-arch', '{arch}', '-isysroot', '/Applications/Xcode.app/Contents/Developer/Platforms/{sdk}.platform/Developer/SDKs/{sdk}.sdk', '-miphoneos-version-min={deployment}']
+link_args = ['-arch', '{arch}', '-isysroot', '/Applications/Xcode.app/Contents/Developer/Platforms/{sdk}.platform/Developer/SDKs/{sdk}.sdk', '-miphoneos-version-min={deployment}']
+"""
+    cross_file.write_text(cross_content.strip())
+    
+    meson_args = [
+        "meson", "setup", str(build_dir),
+        f"--cross-file={cross_file}",
+        "-Dbuildtype=release",
+        "-Dvulkan=disabled",
+        "-Dlua=disabled",
+        "-Djavascript=disabled",
+    ]
+    
+    result = run_cmd(meson_args, cwd=src_dir)
+    if result.returncode != 0:
+        return False
+    
+    result = run_cmd(["ninja", "-C", str(build_dir), f"-j{os.cpu_count()}"], cwd=src_dir)
+    if result.returncode != 0:
+        return False
+    
+    libs, headers = find_vlc_artifacts(build_dir, "ios")
+    organize_output(libs, headers, output_dir, "ios", arch)
+    return True
+
+
+def build_macos(src_dir: Path, arch: str, output_dir: Path) -> bool:
+    deployment_map = {"arm64": "11.0", "x86_64": "10.15"}
+    deployment = deployment_map.get(arch, "10.15")
+    
+    build_dir = src_dir / f"build-macos-{arch}"
+    build_dir.mkdir(exist_ok=True)
+    
+    cross_file = src_dir / f"cross-macos-{arch}.meson"
+    cpu_family = "aarch64" if arch == "arm64" else "x86_64"
+    cross_content = f"""
+[binaries]
+c = 'clang'
+cpp = 'clang++'
+ar = 'ar'
+strip = 'strip'
+pkgconfig = 'pkg-config'
+
+[host_machine]
+system = 'darwin'
+cpu_family = '{cpu_family}'
+cpu = '{arch}'
+endian = 'little'
+
+[properties]
+c_args = ['-arch', '{arch}', '-mmacosx-version-min={deployment}']
+cpp_args = ['-arch', '{arch}', '-mmacosx-version-min={deployment}']
+link_args = ['-arch', '{arch}', '-mmacosx-version-min={deployment}']
+"""
+    cross_file.write_text(cross_content.strip())
+    
+    meson_args = [
+        "meson", "setup", str(build_dir),
+        f"--cross-file={cross_file}",
+        "-Dbuildtype=release",
         "-Dvulkan=disabled",
     ]
     
@@ -492,7 +625,7 @@ def build_macos(src_dir: Path, arch: str, output_dir: Path) -> bool:
     if result.returncode != 0:
         return False
     
-    result = run_cmd(["ninja", "-C", str(build_dir)], cwd=src_dir)
+    result = run_cmd(["ninja", "-C", str(build_dir), f"-j{os.cpu_count()}"], cwd=src_dir)
     if result.returncode != 0:
         return False
     
@@ -502,22 +635,54 @@ def build_macos(src_dir: Path, arch: str, output_dir: Path) -> bool:
 
 
 def build_linux(src_dir: Path, arch: str, output_dir: Path) -> bool:
-    build_dir = src_dir / "build"
+    build_dir = src_dir / f"build-linux-{arch}"
     build_dir.mkdir(exist_ok=True)
     
-    meson_args = [
-        "meson", "setup", str(build_dir),
-        "-Dbuildtype=release",
-    ]
+    meson_args = ["meson", "setup", str(build_dir), "-Dbuildtype=release", "-Dvulkan=disabled"]
     
     if arch != "x86_64":
-        meson_args.extend([f"--cross-file=build/cross/{arch}.meson"])
+        cross_file = src_dir / f"cross-linux-{arch}.meson"
+        if arch == "arm64":
+            cross_content = """
+[binaries]
+c = 'aarch64-linux-gnu-gcc'
+cpp = 'aarch64-linux-gnu-g++'
+ar = 'aarch64-linux-gnu-ar'
+strip = 'aarch64-linux-gnu-strip'
+pkgconfig = 'aarch64-linux-gnu-pkg-config'
+
+[host_machine]
+system = 'linux'
+cpu_family = 'aarch64'
+cpu = 'arm64'
+endian = 'little'
+"""
+        elif arch == "x86":
+            cross_content = """
+[binaries]
+c = 'i686-linux-gnu-gcc'
+cpp = 'i686-linux-gnu-g++'
+ar = 'i686-linux-gnu-ar'
+strip = 'i686-linux-gnu-strip'
+pkgconfig = 'i686-linux-gnu-pkg-config'
+
+[host_machine]
+system = 'linux'
+cpu_family = 'x86'
+cpu = 'i686'
+endian = 'little'
+"""
+        else:
+            Logger.error(f"Unsupported Linux cross-compile arch: {arch}")
+            return False
+        cross_file.write_text(cross_content.strip())
+        meson_args.extend([f"--cross-file={cross_file}"])
     
     result = run_cmd(meson_args, cwd=src_dir)
     if result.returncode != 0:
         return False
     
-    result = run_cmd(["ninja", "-C", str(build_dir)], cwd=src_dir)
+    result = run_cmd(["ninja", "-C", str(build_dir), f"-j{os.cpu_count()}"], cwd=src_dir)
     if result.returncode != 0:
         return False
     
@@ -527,9 +692,69 @@ def build_linux(src_dir: Path, arch: str, output_dir: Path) -> bool:
 
 
 def build_windows(src_dir: Path, arch: str, output_dir: Path) -> bool:
-    Logger.warning("Windows build requires MSVC/MinGW and proper environment setup")
-    Logger.info("This is a placeholder - full Windows build requires extensive toolchain configuration")
-    return False
+    vs_arch_map = {"x86_64": "x64", "arm64": "arm64", "x86": "x86"}
+    vs_arch = vs_arch_map.get(arch)
+    
+    if not vs_arch:
+        Logger.error(f"Unsupported Windows arch: {arch}")
+        return False
+    
+    build_dir = src_dir / f"build-windows-{arch}"
+    build_dir.mkdir(exist_ok=True)
+    
+    cross_file = src_dir / f"cross-windows-{arch}.meson"
+    cross_content = f"""
+[binaries]
+c = 'cl'
+cpp = 'cl'
+ar = 'lib'
+link = 'link'
+pkgconfig = 'pkg-config'
+
+[host_machine]
+system = 'windows'
+cpu_family = '{arch}'
+cpu = '{arch}'
+endian = 'little'
+
+[properties]
+c_args = ['/MD', '/D_CRT_SECURE_NO_WARNINGS']
+cpp_args = ['/MD', '/D_CRT_SECURE_NO_WARNINGS', '/EHsc']
+link_args = ['/MANIFEST:NO']
+"""
+    cross_file.write_text(cross_content.strip())
+    
+    vcvars = r"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat"
+    if not Path(vcvars).exists():
+        vcvars = r"C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat"
+    if not Path(vcvars).exists():
+        vcvars = r"C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\VC\Auxiliary\Build\vcvarsall.bat"
+    
+    if not Path(vcvars).exists():
+        Logger.error("Visual Studio not found. Install VS 2022 with C++ workload.")
+        return False
+    
+    meson_args = [
+        "meson", "setup", str(build_dir),
+        f"--cross-file={cross_file}",
+        "-Dbuildtype=release",
+        "-Dvulkan=disabled",
+        "-Dlua=disabled",
+        "-Djavascript=disabled",
+    ]
+    
+    env = os.environ.copy()
+    result = run_cmd(["cmd", "/c", f"\"{vcvars}\" {vs_arch} && meson"] + meson_args[1:], cwd=src_dir, env=env)
+    if result.returncode != 0:
+        return False
+    
+    result = run_cmd(["cmd", "/c", f"\"{vcvars}\" {vs_arch} && ninja -C {build_dir}"], cwd=src_dir, env=env)
+    if result.returncode != 0:
+        return False
+    
+    libs, headers = find_vlc_artifacts(build_dir, "windows")
+    organize_output(libs, headers, output_dir, "windows", arch)
+    return True
 
 
 def create_package(dist_dir: Path, target_os: str, arch: str, mode: str) -> Path:

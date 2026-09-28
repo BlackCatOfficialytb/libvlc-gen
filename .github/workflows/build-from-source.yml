@@ -31,7 +31,6 @@ env:
 jobs:
   build-ios-macos:
     name: Build ${{ matrix.target_os }}-${{ matrix.arch }}
-    if: contains(github.event.inputs.target_os, matrix.target_os) || github.event.inputs.target_os == ''
     runs-on: macos-14
     strategy:
       fail-fast: false
@@ -185,7 +184,6 @@ jobs:
 
   build-android:
     name: Build Android-${{ matrix.arch }}
-    if: contains(github.event.inputs.target_os, 'android') || github.event.inputs.target_os == ''
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -194,7 +192,7 @@ jobs:
           - arch: arm64
             abi: arm64-v8a
             api: 21
-            ndk_arch: arm64
+            ndk_arch: aarch64
           - arch: armv7
             abi: armeabi-v7a
             api: 21
@@ -206,7 +204,7 @@ jobs:
           - arch: x86
             abi: x86
             api: 21
-            ndk_arch: x86
+            ndk_arch: i686
     timeout-minutes: 180
     steps:
       - name: Checkout repository
@@ -226,7 +224,8 @@ jobs:
       - name: Setup Android NDK
         uses: android-actions/setup-android@v3
         with:
-          ndk-version: r27b
+          api-level: 21
+          ndk-version: '27.0.12077973'
 
       - name: Clone VLC source
         run: |
@@ -247,7 +246,7 @@ jobs:
           
           [host_machine]
           system = 'linux'
-          cpu_family = '${{ matrix.ndk_arch == 'arm64' && 'aarch64' || matrix.ndk_arch == 'arm' && 'arm' || matrix.ndk_arch }}'
+          cpu_family = '${{ matrix.ndk_arch == 'aarch64' && 'aarch64' || matrix.ndk_arch == 'arm' && 'arm' || matrix.ndk_arch }}'
           cpu = '${{ matrix.ndk_arch }}'
           endian = 'little'
           
@@ -257,7 +256,7 @@ jobs:
           link_args = ['-fPIC']
           EOF
           
-          export ANDROID_NDK_HOME=${{ env.ANDROID_NDK_HOME }}
+          export ANDROID_NDK_HOME=$ANDROID_NDK_HOME
           export PATH=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH
           
           meson setup build-android-${{ matrix.arch }} \
@@ -271,7 +270,7 @@ jobs:
       - name: Build Android
         run: |
           cd vlc-source
-          export ANDROID_NDK_HOME=${{ env.ANDROID_NDK_HOME }}
+          export ANDROID_NDK_HOME=$ANDROID_NDK_HOME
           export PATH=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH
           ninja -C build-android-${{ matrix.arch }} -j$(nproc)
 
@@ -311,7 +310,6 @@ jobs:
 
   build-linux:
     name: Build Linux-${{ matrix.arch }}
-    if: contains(github.event.inputs.target_os, 'linux') || github.event.inputs.target_os == ''
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -436,7 +434,6 @@ jobs:
 
   build-windows:
     name: Build Windows-${{ matrix.arch }}
-    if: contains(github.event.inputs.target_os, 'windows') || github.event.inputs.target_os == ''
     runs-on: windows-latest
     strategy:
       fail-fast: false

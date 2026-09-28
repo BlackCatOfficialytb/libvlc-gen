@@ -1,0 +1,191 @@
+name: Fetch LibVLC Prebuilt Artifacts
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_os:
+        description: "Target OS matrix (comma-separated)"
+        type: string
+        required: false
+        default: "ios,android,macos,linux,windows"
+      target_arch:
+        description: "Target architecture (comma-separated, per OS)"
+        type: string
+        required: false
+        default: ""
+      create_release:
+        description: "Create GitHub Release with artifacts"
+        type: boolean
+        required: false
+        default: true
+      release_tag:
+        description: "Release tag (default: nightly-YYYYMMDD)"
+        type: string
+        required: false
+        default: ""
+  schedule:
+    - cron: '0 2 * * *'
+
+env:
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  fetch-matrix:
+    name: Fetch ${{ matrix.target_os }}-${{ matrix.arch }}
+    runs-on: ${{ matrix.runs_on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target_os: ios
+            arch: arm64
+            runs_on: macos-14
+          - target_os: ios
+            arch: armv7
+            runs_on: macos-14
+          - target_os: android
+            arch: arm64
+            runs_on: ubuntu-latest
+          - target_os: android
+            arch: armv7
+            runs_on: ubuntu-latest
+          - target_os: android
+            arch: x86_64
+            runs_on: ubuntu-latest
+          - target_os: android
+            arch: x86
+            runs_on: ubuntu-latest
+          - target_os: macos
+            arch: arm64
+            runs_on: macos-14
+          - target_os: macos
+            arch: x86_64
+            runs_on: macos-14
+          - target_os: linux
+            arch: x86_64
+            runs_on: ubuntu-latest
+          - target_os: linux
+            arch: arm64
+            runs_on: ubuntu-latest
+          - target_os: linux
+            arch: x86
+            runs_on: ubuntu-latest
+          - target_os: windows
+            arch: x86_64
+            runs_on: windows-latest
+          - target_os: windows
+            arch: arm64
+            runs_on: windows-latest
+          - target_os: windows
+            arch: x86
+            runs_on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Generate LibVLC (fetch mode)
+        continue-on-error: true
+        run: |
+          python tools/generate_libvlc.py \
+            --mode fetch \
+            --target-os ${{ matrix.target_os }} \
+            --arch ${{ matrix.arch }} \
+            --output-dir ./dist \
+            --package \
+            --verbose
+
+      - name: Verify artifacts
+        run: |
+          DIST_DIR="./dist/${{ matrix.target_os }}-${{ matrix.arch }}"
+          echo "=== Contents of $DIST_DIR ==="
+          find "$DIST_DIR" -type f | sort
+          echo ""
+          echo "=== Library files ==="
+          find "$DIST_DIR/lib" -type f -exec ls -lh {} \;
+          echo ""
+          echo "=== Header files ==="
+          find "$DIST_DIR/include" -type f -exec ls -lh {} \;
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: libvlc-${{ matrix.target_os }}-${{ matrix.arch }}
+          path: dist/${{ matrix.target_os }}-${{ matrix.arch }}/
+          retention-days: 30
+          compression-level: 6
+
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: libvlc-${{ matrix.target_os }}-${{ matrix.arch }}-package
+          path: dist/libvlc-${{ matrix.target_os }}-${{ matrix.arch }}-prebuilt.zip
+          retention-days: 30
+
+  create-release:
+    name: Create GitHub Release
+    needs: fetch-matrix
+    if: github.event_name == 'workflow_dispatch' && inputs.create_release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./artifacts
+          pattern: libvlc-*-package
+          merge-multiple: false
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p ./release-assets
+          find ./artifacts -name "*.zip" -exec cp {} ./release-assets/ \;
+          ls -la ./release-assets/
+
+      - name: Determine release tag
+        id: tag
+        run: |
+          if [ -n "${{ github.event.inputs.release_tag }}" ]; then
+            echo "tag=${{ github.event.inputs.release_tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=nightly-$(date +%Y%m%d)" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: "LibVLC Prebuilt Binaries ${{ steps.tag.outputs.tag }}"
+          body: |
+            ## LibVLC Prebuilt Binaries
+            
+            Automated nightly build of LibVLC for all supported platforms.
+            
+            **Source:** https://code.videolan.org/videolan/vlc.git
+            **Build Date:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+            
+            ### Included Platforms
+            - iOS (arm64, armv7)
+            - Android (arm64, armv7, x86_64, x86)
+            - macOS (arm64, x86_64)
+            - Linux (x86_64, arm64, x86)
+            - Windows (x86_64, arm64, x86)
+            
+            Each package contains:
+            - `include/vlc/` - C/C++ headers
+            - `lib/` - Static and dynamic libraries
+          draft: false
+          prerelease: true
+          files: ./release-assets/*.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

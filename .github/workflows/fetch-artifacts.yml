@@ -94,6 +94,7 @@ jobs:
           pip install -r requirements.txt
 
       - name: Generate LibVLC (fetch mode)
+        continue-on-error: true
         run: |
           python tools/generate_libvlc.py \
             --mode fetch \

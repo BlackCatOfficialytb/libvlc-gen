@@ -34,6 +34,7 @@ except ImportError:
 VLC_REPO_URL = "https://code.videolan.org/videolan/vlc.git"
 VLC_RELEASES_API = "https://code.videolan.org/api/v4/projects/videolan%2Fvlc/releases"
 VLC_NIGHTLY_BASE = "https://artifacts.videolan.org/vlc/nightly"
+VLC_STABLE_BASE = "https://get.videolan.org/vlc"
 
 TARGET_OS_CHOICES = ["ios", "android", "macos", "linux", "windows"]
 ARCH_CHOICES = ["arm64", "armv7", "x86_64", "x86"]
@@ -226,6 +227,26 @@ def fetch_prebuilt(target_os: str, arch: str, output_dir: Path) -> bool:
     return False
 
 
+def try_download(url: str, archive: Path) -> bool:
+    """Try to download a file, return False on 404 or other errors."""
+    try:
+        response = requests.get(url, stream=True, timeout=30)
+        if response.status_code == 404:
+            Logger.warning(f"Not found (404): {url}")
+            return False
+        response.raise_for_status()
+        total = int(response.headers.get('content-length', 0))
+        with open(archive, 'wb') as f, tqdm(total=total, unit='B', unit_scale=True, desc=archive.name) as pbar:
+            for chunk in response.iter_content(chunk_size=8192):
+                if chunk:
+                    f.write(chunk)
+                    pbar.update(len(chunk))
+        return True
+    except requests.RequestException as e:
+        Logger.warning(f"Download failed: {url} - {e}")
+        return False
+
+
 def fetch_android_prebuilt(arch: str, output_dir: Path) -> bool:
     url_map = {
         "arm64": "arm64-v8a",
@@ -238,15 +259,28 @@ def fetch_android_prebuilt(arch: str, output_dir: Path) -> bool:
         Logger.error(f"Unknown Android arch: {arch}")
         return False
 
-    url = f"{VLC_NIGHTLY_BASE}/android/{abi}/libvlc-android-{abi}.zip"
+    urls = [
+        f"{VLC_NIGHTLY_BASE}/android/{abi}/libvlc-android-{abi}.zip",
+        f"{VLC_STABLE_BASE}/latest/android/{abi}/libvlc-android-{abi}.zip",
+    ]
+    
     with tempfile.TemporaryDirectory() as tmp:
         archive = Path(tmp) / f"libvlc-android-{abi}.zip"
-        if not download_file(url, archive):
+        for url in urls:
+            Logger.info(f"Trying: {url}")
+            if try_download(url, archive):
+                break
+        else:
+            Logger.error(f"All download attempts failed for Android {abi}")
             return False
+        
         extract_dir = Path(tmp) / "extracted"
         if not extract_archive(archive, extract_dir):
             return False
         libs, headers = find_vlc_artifacts(extract_dir, "android")
+        if not libs and not headers:
+            Logger.warning(f"No LibVLC artifacts found in Android {abi} package")
+            return False
         organize_output(libs, headers, output_dir, "android", arch)
     return True
 
@@ -261,15 +295,28 @@ def fetch_ios_prebuilt(arch: str, output_dir: Path) -> bool:
         Logger.error(f"Unknown iOS arch: {arch}")
         return False
 
-    url = f"{VLC_NIGHTLY_BASE}/ios/{ios_arch}/libvlc-ios-{ios_arch}.zip"
+    urls = [
+        f"{VLC_NIGHTLY_BASE}/ios/{ios_arch}/libvlc-ios-{ios_arch}.zip",
+        f"{VLC_STABLE_BASE}/latest/ios/{ios_arch}/libvlc-ios-{ios_arch}.zip",
+    ]
+    
     with tempfile.TemporaryDirectory() as tmp:
         archive = Path(tmp) / f"libvlc-ios-{ios_arch}.zip"
-        if not download_file(url, archive):
+        for url in urls:
+            Logger.info(f"Trying: {url}")
+            if try_download(url, archive):
+                break
+        else:
+            Logger.error(f"All download attempts failed for iOS {ios_arch}")
             return False
+        
         extract_dir = Path(tmp) / "extracted"
         if not extract_archive(archive, extract_dir):
             return False
         libs, headers = find_vlc_artifacts(extract_dir, "ios")
+        if not libs and not headers:
+            Logger.warning(f"No LibVLC artifacts found in iOS {ios_arch} package")
+            return False
         organize_output(libs, headers, output_dir, "ios", arch)
     return True
 
@@ -284,15 +331,28 @@ def fetch_macos_prebuilt(arch: str, output_dir: Path) -> bool:
         Logger.error(f"Unknown macOS arch: {arch}")
         return False
 
-    url = f"{VLC_NIGHTLY_BASE}/macos/{mac_arch}/libvlc-macos-{mac_arch}.tar.gz"
+    urls = [
+        f"{VLC_NIGHTLY_BASE}/macos/{mac_arch}/libvlc-macos-{mac_arch}.tar.gz",
+        f"{VLC_STABLE_BASE}/latest/macos/{mac_arch}/libvlc-macos-{mac_arch}.tar.gz",
+    ]
+    
     with tempfile.TemporaryDirectory() as tmp:
         archive = Path(tmp) / f"libvlc-macos-{mac_arch}.tar.gz"
-        if not download_file(url, archive):
+        for url in urls:
+            Logger.info(f"Trying: {url}")
+            if try_download(url, archive):
+                break
+        else:
+            Logger.error(f"All download attempts failed for macOS {mac_arch}")
             return False
+        
         extract_dir = Path(tmp) / "extracted"
         if not extract_archive(archive, extract_dir):
             return False
         libs, headers = find_vlc_artifacts(extract_dir, "macos")
+        if not libs and not headers:
+            Logger.warning(f"No LibVLC artifacts found in macOS {mac_arch} package")
+            return False
         organize_output(libs, headers, output_dir, "macos", arch)
     return True
 
@@ -308,15 +368,28 @@ def fetch_linux_prebuilt(arch: str, output_dir: Path) -> bool:
         Logger.error(f"Unknown Linux arch: {arch}")
         return False
 
-    url = f"{VLC_NIGHTLY_BASE}/linux/{linux_arch}/libvlc-linux-{linux_arch}.tar.gz"
+    urls = [
+        f"{VLC_NIGHTLY_BASE}/linux/{linux_arch}/libvlc-linux-{linux_arch}.tar.gz",
+        f"{VLC_STABLE_BASE}/latest/linux/{linux_arch}/libvlc-linux-{linux_arch}.tar.gz",
+    ]
+    
     with tempfile.TemporaryDirectory() as tmp:
         archive = Path(tmp) / f"libvlc-linux-{linux_arch}.tar.gz"
-        if not download_file(url, archive):
+        for url in urls:
+            Logger.info(f"Trying: {url}")
+            if try_download(url, archive):
+                break
+        else:
+            Logger.error(f"All download attempts failed for Linux {linux_arch}")
             return False
+        
         extract_dir = Path(tmp) / "extracted"
         if not extract_archive(archive, extract_dir):
             return False
         libs, headers = find_vlc_artifacts(extract_dir, "linux")
+        if not libs and not headers:
+            Logger.warning(f"No LibVLC artifacts found in Linux {linux_arch} package")
+            return False
         organize_output(libs, headers, output_dir, "linux", arch)
     return True
 
@@ -331,6 +404,31 @@ def fetch_windows_prebuilt(arch: str, output_dir: Path) -> bool:
     if not win_arch:
         Logger.error(f"Unknown Windows arch: {arch}")
         return False
+
+    urls = [
+        f"{VLC_NIGHTLY_BASE}/win64/libvlc-win64-{win_arch}.zip",
+        f"{VLC_STABLE_BASE}/latest/win64/libvlc-win64-{win_arch}.zip",
+    ]
+    
+    with tempfile.TemporaryDirectory() as tmp:
+        archive = Path(tmp) / f"libvlc-win64-{win_arch}.zip"
+        for url in urls:
+            Logger.info(f"Trying: {url}")
+            if try_download(url, archive):
+                break
+        else:
+            Logger.error(f"All download attempts failed for Windows {win_arch}")
+            return False
+        
+        extract_dir = Path(tmp) / "extracted"
+        if not extract_archive(archive, extract_dir):
+            return False
+        libs, headers = find_vlc_artifacts(extract_dir, "windows")
+        if not libs and not headers:
+            Logger.warning(f"No LibVLC artifacts found in Windows {win_arch} package")
+            return False
+        organize_output(libs, headers, output_dir, "windows", arch)
+    return True
 
     url = f"{VLC_NIGHTLY_BASE}/win{'' if arch == 'x86_64' else '32'}/libvlc-win{'' if arch == 'x86_64' else '32'}-{win_arch}.zip"
     with tempfile.TemporaryDirectory() as tmp:

@@ -36,7 +36,7 @@ VLC_RELEASES_API = "https://code.videolan.org/api/v4/projects/videolan%2Fvlc/rel
 VLC_NIGHTLY_BASE = "https://artifacts.videolan.org/vlc/nightly"
 VLC_STABLE_BASE = "https://get.videolan.org/vlc"
 
-TARGET_OS_CHOICES = ["ios", "android", "macos", "linux", "windows"]
+TARGET_OS_CHOICES = ["ios", "android", "macos", "linux", "windows", "freebsd"]
 ARCH_CHOICES = ["arm64", "armv7", "x86_64", "x86"]
 
 OS_ARCH_MAP: Dict[str, List[str]] = {
@@ -45,6 +45,7 @@ OS_ARCH_MAP: Dict[str, List[str]] = {
     "macos": ["arm64", "x86_64"],
     "linux": ["arm64", "x86_64", "x86"],
     "windows": ["arm64", "x86_64", "x86"],
+    "freebsd": ["arm64", "x86_64"],
 }
 
 HOST_OS_MAP = {
@@ -224,6 +225,8 @@ def fetch_prebuilt(target_os: str, arch: str, output_dir: Path) -> bool:
         return fetch_linux_prebuilt(arch, output_dir)
     elif target_os == "windows":
         return fetch_windows_prebuilt(arch, output_dir)
+    elif target_os == "freebsd":
+        return fetch_freebsd_prebuilt(arch, output_dir)
     return False
 
 
@@ -430,9 +433,13 @@ def fetch_windows_prebuilt(arch: str, output_dir: Path) -> bool:
         organize_output(libs, headers, output_dir, "windows", arch)
     return True
 
+def fetch_freebsd_prebuilt(arch: str, output_dir: Path) -> bool:
+    Logger.warning("FreeBSD prebuilt binaries not available from official sources")
+    return False
 
-def build_from_source(target_os: str, arch: str, output_dir: Path, source_url: str, branch: str = "master") -> bool:
-    Logger.info(f"Building LibVLC from source for {target_os}-{arch}")
+
+def build_from_source(target_os: str, arch: str, output_dir: Path, source_url: str, branch: str = "master", compiler: str = "gcc") -> bool:
+    Logger.info(f"Building LibVLC from source for {target_os}-{arch} (compiler: {compiler})")
     
     with tempfile.TemporaryDirectory() as tmp:
         src_dir = Path(tmp) / "vlc"
@@ -448,9 +455,11 @@ def build_from_source(target_os: str, arch: str, output_dir: Path, source_url: s
         elif target_os == "macos":
             return build_macos(src_dir, arch, output_dir)
         elif target_os == "linux":
-            return build_linux(src_dir, arch, output_dir)
+            return build_linux(src_dir, arch, output_dir, compiler)
         elif target_os == "windows":
-            return build_windows(src_dir, arch, output_dir)
+            return build_windows(src_dir, arch, output_dir, compiler)
+        elif target_os == "freebsd":
+            return build_freebsd(src_dir, arch, output_dir)
     return False
 
 
@@ -507,7 +516,6 @@ link_args = ['-fPIC']
         "-Dbuildtype=release",
         "-Dvulkan=disabled",
         "-Dlua=disabled",
-        "-Djavascript=disabled",
         "-Dandroid=true",
     ]
     
@@ -544,6 +552,7 @@ def build_ios(src_dir: Path, arch: str, output_dir: Path) -> bool:
 [binaries]
 c = 'xcrun -sdk {sdk} clang'
 cpp = 'xcrun -sdk {sdk} clang++'
+objc = 'xcrun -sdk {sdk} clang'
 ar = 'xcrun -sdk {sdk} ar'
 strip = 'xcrun -sdk {sdk} strip'
 pkgconfig = 'pkg-config'
@@ -558,6 +567,7 @@ endian = 'little'
 sys_root = '/Applications/Xcode.app/Contents/Developer/Platforms/{sdk}.platform/Developer/SDKs/{sdk}.sdk'
 c_args = ['-arch', '{arch}', '-isysroot', '/Applications/Xcode.app/Contents/Developer/Platforms/{sdk}.platform/Developer/SDKs/{sdk}.sdk', '-miphoneos-version-min={deployment}']
 cpp_args = ['-arch', '{arch}', '-isysroot', '/Applications/Xcode.app/Contents/Developer/Platforms/{sdk}.platform/Developer/SDKs/{sdk}.sdk', '-miphoneos-version-min={deployment}']
+objc_args = ['-arch', '{arch}', '-isysroot', '/Applications/Xcode.app/Contents/Developer/Platforms/{sdk}.platform/Developer/SDKs/{sdk}.sdk', '-miphoneos-version-min={deployment}']
 link_args = ['-arch', '{arch}', '-isysroot', '/Applications/Xcode.app/Contents/Developer/Platforms/{sdk}.platform/Developer/SDKs/{sdk}.sdk', '-miphoneos-version-min={deployment}']
 """
     cross_file.write_text(cross_content.strip())
@@ -568,7 +578,6 @@ link_args = ['-arch', '{arch}', '-isysroot', '/Applications/Xcode.app/Contents/D
         "-Dbuildtype=release",
         "-Dvulkan=disabled",
         "-Dlua=disabled",
-        "-Djavascript=disabled",
     ]
     
     result = run_cmd(meson_args, cwd=src_dir)
@@ -597,6 +606,7 @@ def build_macos(src_dir: Path, arch: str, output_dir: Path) -> bool:
 [binaries]
 c = 'clang'
 cpp = 'clang++'
+objc = 'clang'
 ar = 'ar'
 strip = 'strip'
 pkgconfig = 'pkg-config'
@@ -610,6 +620,7 @@ endian = 'little'
 [properties]
 c_args = ['-arch', '{arch}', '-mmacosx-version-min={deployment}']
 cpp_args = ['-arch', '{arch}', '-mmacosx-version-min={deployment}']
+objc_args = ['-arch', '{arch}', '-mmacosx-version-min={deployment}']
 link_args = ['-arch', '{arch}', '-mmacosx-version-min={deployment}']
 """
     cross_file.write_text(cross_content.strip())
@@ -634,16 +645,51 @@ link_args = ['-arch', '{arch}', '-mmacosx-version-min={deployment}']
     return True
 
 
-def build_linux(src_dir: Path, arch: str, output_dir: Path) -> bool:
-    build_dir = src_dir / f"build-linux-{arch}"
+def build_linux(src_dir: Path, arch: str, output_dir: Path, compiler: str = "gcc") -> bool:
+    build_dir = src_dir / f"build-linux-{arch}-{compiler}"
     build_dir.mkdir(exist_ok=True)
     
     meson_args = ["meson", "setup", str(build_dir), "-Dbuildtype=release", "-Dvulkan=disabled"]
     
     if arch != "x86_64":
-        cross_file = src_dir / f"cross-linux-{arch}.meson"
-        if arch == "arm64":
-            cross_content = """
+        cross_file = src_dir / f"cross-linux-{arch}-{compiler}.meson"
+        if compiler == "clang":
+            if arch == "arm64":
+                cross_content = """
+[binaries]
+c = 'clang'
+cpp = 'clang++'
+ar = 'llvm-ar'
+strip = 'llvm-strip'
+pkgconfig = 'pkg-config'
+
+[host_machine]
+system = 'linux'
+cpu_family = 'aarch64'
+cpu = 'arm64'
+endian = 'little'
+"""
+            elif arch == "x86":
+                cross_content = """
+[binaries]
+c = 'clang'
+cpp = 'clang++'
+ar = 'llvm-ar'
+strip = 'llvm-strip'
+pkgconfig = 'pkg-config'
+
+[host_machine]
+system = 'linux'
+cpu_family = 'x86'
+cpu = 'i686'
+endian = 'little'
+"""
+            else:
+                Logger.error(f"Unsupported Linux cross-compile arch for clang: {arch}")
+                return False
+        else:  # gcc
+            if arch == "arm64":
+                cross_content = """
 [binaries]
 c = 'aarch64-linux-gnu-gcc'
 cpp = 'aarch64-linux-gnu-g++'
@@ -657,8 +703,8 @@ cpu_family = 'aarch64'
 cpu = 'arm64'
 endian = 'little'
 """
-        elif arch == "x86":
-            cross_content = """
+            elif arch == "x86":
+                cross_content = """
 [binaries]
 c = 'i686-linux-gnu-gcc'
 cpp = 'i686-linux-gnu-g++'
@@ -672,38 +718,73 @@ cpu_family = 'x86'
 cpu = 'i686'
 endian = 'little'
 """
-        else:
-            Logger.error(f"Unsupported Linux cross-compile arch: {arch}")
-            return False
+            else:
+                Logger.error(f"Unsupported Linux cross-compile arch for gcc: {arch}")
+                return False
         cross_file.write_text(cross_content.strip())
         meson_args.extend([f"--cross-file={cross_file}"])
+    else:
+        # Native build - set compiler via environment
+        if compiler == "clang":
+            env = os.environ.copy()
+            env["CC"] = "clang"
+            env["CXX"] = "clang++"
+        else:
+            env = os.environ.copy()
+            env["CC"] = "gcc"
+            env["CXX"] = "g++"
     
-    result = run_cmd(meson_args, cwd=src_dir)
+    result = run_cmd(meson_args, cwd=src_dir, env=env if arch == "x86_64" else None)
     if result.returncode != 0:
         return False
     
-    result = run_cmd(["ninja", "-C", str(build_dir), f"-j{os.cpu_count()}"], cwd=src_dir)
+    result = run_cmd(["ninja", "-C", str(build_dir), f"-j{os.cpu_count()}"], cwd=src_dir, env=env if arch == "x86_64" else None)
     if result.returncode != 0:
         return False
     
     libs, headers = find_vlc_artifacts(build_dir, "linux")
-    organize_output(libs, headers, output_dir, "linux", arch)
+    organize_output(libs, headers, output_dir, "linux", f"{arch}-{compiler}")
     return True
 
 
-def build_windows(src_dir: Path, arch: str, output_dir: Path) -> bool:
-    vs_arch_map = {"x86_64": "x64", "arm64": "arm64", "x86": "x86"}
-    vs_arch = vs_arch_map.get(arch)
+def build_windows(src_dir: Path, arch: str, output_dir: Path, compiler: str = "msvc") -> bool:
+    build_dir = src_dir / f"build-windows-{arch}-{compiler}"
+    build_dir.mkdir(exist_ok=True)
     
-    if not vs_arch:
+    vs_arch_map = {"x86_64": "x64", "arm64": "arm64", "x86": "x86"}
+    meson_arch_map = {"x86_64": "x86_64", "arm64": "arm64", "x86": "x86"}
+    
+    vs_arch = vs_arch_map.get(arch)
+    meson_arch = meson_arch_map.get(arch)
+    
+    if not vs_arch or not meson_arch:
         Logger.error(f"Unsupported Windows arch: {arch}")
         return False
     
-    build_dir = src_dir / f"build-windows-{arch}"
-    build_dir.mkdir(exist_ok=True)
+    cross_file = src_dir / f"cross-windows-{arch}-{compiler}.meson"
     
-    cross_file = src_dir / f"cross-windows-{arch}.meson"
-    cross_content = f"""
+    if compiler == "clang-cl":
+        cross_content = f"""
+[binaries]
+c = 'clang-cl'
+cpp = 'clang-cl'
+ar = 'llvm-lib'
+link = 'lld-link'
+pkgconfig = 'pkg-config'
+
+[host_machine]
+system = 'windows'
+cpu_family = '{meson_arch}'
+cpu = '{meson_arch}'
+endian = 'little'
+
+[properties]
+c_args = ['/MD', '/D_CRT_SECURE_NO_WARNINGS']
+cpp_args = ['/MD', '/D_CRT_SECURE_NO_WARNINGS', '/EHsc']
+link_args = ['/MANIFEST:NO']
+"""
+    else:  # msvc
+        cross_content = f"""
 [binaries]
 c = 'cl'
 cpp = 'cl'
@@ -713,8 +794,8 @@ pkgconfig = 'pkg-config'
 
 [host_machine]
 system = 'windows'
-cpu_family = '{arch}'
-cpu = '{arch}'
+cpu_family = '{meson_arch}'
+cpu = '{meson_arch}'
 endian = 'little'
 
 [properties]
@@ -724,36 +805,87 @@ link_args = ['/MANIFEST:NO']
 """
     cross_file.write_text(cross_content.strip())
     
-    vcvars = r"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat"
-    if not Path(vcvars).exists():
-        vcvars = r"C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat"
-    if not Path(vcvars).exists():
-        vcvars = r"C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\VC\Auxiliary\Build\vcvarsall.bat"
-    
-    if not Path(vcvars).exists():
-        Logger.error("Visual Studio not found. Install VS 2022 with C++ workload.")
-        return False
-    
     meson_args = [
         "meson", "setup", str(build_dir),
         f"--cross-file={cross_file}",
         "-Dbuildtype=release",
         "-Dvulkan=disabled",
         "-Dlua=disabled",
-        "-Djavascript=disabled",
     ]
     
-    env = os.environ.copy()
-    result = run_cmd(["cmd", "/c", f"\"{vcvars}\" {vs_arch} && meson"] + meson_args[1:], cwd=src_dir, env=env)
+    # Setup MSVC environment
+    vcvars_path = r"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat"
+    if not os.path.exists(vcvars_path):
+        vcvars_path = r"C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat"
+    if not os.path.exists(vcvars_path):
+        vcvars_path = r"C:\Program Files (x86)\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat"
+    
+    if os.path.exists(vcvars_path):
+        env = os.environ.copy()
+        # Run vcvarsall to set up environment
+        result = run_cmd(["cmd", "/c", f"\"{vcvars_path}\" {vs_arch} && set"], cwd=src_dir, capture=True)
+        if result.returncode == 0:
+            for line in result.stdout.splitlines():
+                if "=" in line:
+                    key, value = line.split("=", 1)
+                    env[key] = value
+    else:
+        Logger.warning("vcvarsall.bat not found, using default environment")
+        env = os.environ.copy()
+    
+    result = run_cmd(meson_args, cwd=src_dir, env=env)
     if result.returncode != 0:
         return False
     
-    result = run_cmd(["cmd", "/c", f"\"{vcvars}\" {vs_arch} && ninja -C {build_dir}"], cwd=src_dir, env=env)
+    result = run_cmd(["ninja", "-C", str(build_dir), f"-j{os.cpu_count()}"], cwd=src_dir, env=env)
     if result.returncode != 0:
         return False
     
     libs, headers = find_vlc_artifacts(build_dir, "windows")
-    organize_output(libs, headers, output_dir, "windows", arch)
+    organize_output(libs, headers, output_dir, "windows", f"{arch}-{compiler}")
+    return True
+
+
+def build_freebsd(src_dir: Path, arch: str, output_dir: Path) -> bool:
+    build_dir = src_dir / f"build-freebsd-{arch}"
+    build_dir.mkdir(exist_ok=True)
+    
+    meson_args = ["meson", "setup", str(build_dir), "-Dbuildtype=release", "-Dvulkan=disabled"]
+    
+    if arch == "arm64":
+        cross_file = src_dir / f"cross-freebsd-{arch}.meson"
+        cross_content = """
+[binaries]
+c = 'aarch64-unknown-freebsd14-gcc'
+cpp = 'aarch64-unknown-freebsd14-g++'
+ar = 'aarch64-unknown-freebsd14-ar'
+strip = 'aarch64-unknown-freebsd14-strip'
+pkgconfig = 'pkgconf'
+
+[host_machine]
+system = 'freebsd'
+cpu_family = 'aarch64'
+cpu = 'arm64'
+endian = 'little'
+"""
+        cross_file.write_text(cross_content.strip())
+        meson_args.extend([f"--cross-file={cross_file}"])
+    else:
+        # Native x86_64 build with clang
+        env = os.environ.copy()
+        env["CC"] = "clang"
+        env["CXX"] = "clang++"
+    
+    result = run_cmd(meson_args, cwd=src_dir, env=env if arch == "x86_64" else None)
+    if result.returncode != 0:
+        return False
+    
+    result = run_cmd(["ninja", "-C", str(build_dir), f"-j{os.cpu_count()}"], cwd=src_dir, env=env if arch == "x86_64" else None)
+    if result.returncode != 0:
+        return False
+    
+    libs, headers = find_vlc_artifacts(build_dir, "freebsd")
+    organize_output(libs, headers, output_dir, "freebsd", arch)
     return True
 
 
@@ -805,6 +937,8 @@ Examples:
                         help=f"VLC source repository URL (default: {VLC_REPO_URL})")
     parser.add_argument("--branch", default="master",
                         help="Git branch/tag to build (default: master)")
+    parser.add_argument("--compiler", choices=["gcc", "clang", "msvc", "clang-cl"], default="gcc",
+                        help="Compiler to use for build (default: gcc for Linux/FreeBSD, msvc for Windows)")
     parser.add_argument("--package", action="store_true",
                         help="Create zip package of output")
     parser.add_argument("--verbose", "-v", action="store_true",
@@ -820,19 +954,25 @@ Examples:
     args.output_dir.mkdir(parents=True, exist_ok=True)
     
     Logger.info(f"Target: {args.target_os}-{args.arch} | Mode: {args.mode}")
+    if args.mode == "build":
+        Logger.info(f"Compiler: {args.compiler}")
     Logger.info(f"Output: {args.output_dir.absolute()}")
     
     success = False
     if args.mode == "fetch":
         success = fetch_prebuilt(args.target_os, args.arch, args.output_dir)
     else:
-        success = build_from_source(args.target_os, args.arch, args.output_dir, args.source_url, args.branch)
+        success = build_from_source(args.target_os, args.arch, args.output_dir, args.source_url, args.branch, args.compiler)
     
     if not success:
         Logger.error("Operation failed")
         return 1
     
-    dist_dir = args.output_dir / f"{args.target_os}-{args.arch}"
+    # Determine output directory name based on compiler for multi-compiler builds
+    if args.mode == "build" and args.target_os in ["linux", "windows"]:
+        dist_dir = args.output_dir / f"{args.target_os}-{args.arch}-{args.compiler}"
+    else:
+        dist_dir = args.output_dir / f"{args.target_os}-{args.arch}"
     print_summary(dist_dir, args.target_os, args.arch)
     
     if args.package:

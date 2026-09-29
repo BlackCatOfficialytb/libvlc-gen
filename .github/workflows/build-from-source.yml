@@ -12,7 +12,7 @@ on:
         description: "Target OS matrix (comma-separated)"
         type: string
         required: false
-        default: "ios,android,macos,linux,windows"
+        default: "ios,android,macos,linux,windows,freebsd"
       create_release:
         description: "Create GitHub Release with artifacts"
         type: boolean
@@ -81,6 +81,7 @@ jobs:
           [binaries]
           c = 'xcrun -sdk ${{ matrix.sdk }} clang'
           cpp = 'xcrun -sdk ${{ matrix.sdk }} clang++'
+          objc = 'xcrun -sdk ${{ matrix.sdk }} clang'
           ar = 'xcrun -sdk ${{ matrix.sdk }} ar'
           strip = 'xcrun -sdk ${{ matrix.sdk }} strip'
           pkgconfig = 'pkg-config'
@@ -95,6 +96,7 @@ jobs:
           sys_root = '/Applications/Xcode.app/Contents/Developer/Platforms/${{ matrix.sdk }}.platform/Developer/SDKs/${{ matrix.sdk }}.sdk'
           c_args = ['-arch', '${{ matrix.arch }}', '-isysroot', '/Applications/Xcode.app/Contents/Developer/Platforms/${{ matrix.sdk }}.platform/Developer/SDKs/${{ matrix.sdk }}.sdk', '-miphoneos-version-min=${{ matrix.deployment_target }}']
           cpp_args = ['-arch', '${{ matrix.arch }}', '-isysroot', '/Applications/Xcode.app/Contents/Developer/Platforms/${{ matrix.sdk }}.platform/Developer/SDKs/${{ matrix.sdk }}.sdk', '-miphoneos-version-min=${{ matrix.deployment_target }}']
+          objc_args = ['-arch', '${{ matrix.arch }}', '-isysroot', '/Applications/Xcode.app/Contents/Developer/Platforms/${{ matrix.sdk }}.platform/Developer/SDKs/${{ matrix.sdk }}.sdk', '-miphoneos-version-min=${{ matrix.deployment_target }}']
           link_args = ['-arch', '${{ matrix.arch }}', '-isysroot', '/Applications/Xcode.app/Contents/Developer/Platforms/${{ matrix.sdk }}.platform/Developer/SDKs/${{ matrix.sdk }}.sdk', '-miphoneos-version-min=${{ matrix.deployment_target }}']
           EOF
           
@@ -102,8 +104,7 @@ jobs:
             --cross-file cross-ios-${{ matrix.arch }}.meson \
             -Dbuildtype=release \
             -Dvulkan=disabled \
-            -Dlua=disabled \
-            -Djavascript=disabled
+            -Dlua=disabled
 
       - name: Configure macOS build
         if: matrix.target_os == 'macos'
@@ -114,6 +115,7 @@ jobs:
           [binaries]
           c = 'clang'
           cpp = 'clang++'
+          objc = 'clang'
           ar = 'ar'
           strip = 'strip'
           pkgconfig = 'pkg-config'
@@ -127,6 +129,7 @@ jobs:
           [properties]
           c_args = ['-arch', '${{ matrix.arch }}', '-mmacosx-version-min=${{ matrix.deployment_target }}']
           cpp_args = ['-arch', '${{ matrix.arch }}', '-mmacosx-version-min=${{ matrix.deployment_target }}']
+          objc_args = ['-arch', '${{ matrix.arch }}', '-mmacosx-version-min=${{ matrix.deployment_target }}']
           link_args = ['-arch', '${{ matrix.arch }}', '-mmacosx-version-min=${{ matrix.deployment_target }}']
           EOF
           
@@ -219,7 +222,8 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          sudo apt-get update && sudo apt-get install -y meson ninja-build pkg-config unzip
+          pip install meson>=1.10.0
+          sudo apt-get update && sudo apt-get install -y ninja-build pkg-config unzip
 
       - name: Setup Android NDK
         uses: android-actions/setup-android@v3
@@ -263,7 +267,6 @@ jobs:
             -Dbuildtype=release \
             -Dvulkan=disabled \
             -Dlua=disabled \
-            -Djavascript=disabled \
             -Dandroid=true
 
       - name: Build Android
@@ -308,7 +311,7 @@ jobs:
           retention-days: 30
 
   build-linux:
-    name: Build Linux-${{ matrix.arch }}
+    name: Build Linux-${{ matrix.arch }}-${{ matrix.compiler }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -316,10 +319,22 @@ jobs:
         include:
           - arch: x86_64
             cross_compile: false
+            compiler: gcc
+          - arch: x86_64
+            cross_compile: false
+            compiler: clang
           - arch: arm64
             cross_compile: true
+            compiler: gcc
+          - arch: arm64
+            cross_compile: true
+            compiler: clang
           - arch: x86
             cross_compile: true
+            compiler: gcc
+          - arch: x86
+            cross_compile: true
+            compiler: clang
     timeout-minutes: 120
     steps:
       - name: Checkout repository
@@ -334,11 +349,13 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install meson>=1.10.0
           sudo apt-get update && sudo apt-get install -y \
-            meson ninja-build pkg-config \
+            ninja-build pkg-config \
             gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
             gcc-i686-linux-gnu g++-i686-linux-gnu \
-            libc6-dev-arm64-cross libc6-dev-i386-cross
+            libc6-dev-arm64-cross libc6-dev-i386-cross \
+            clang llvm
 
       - name: Clone VLC source
         run: |
@@ -347,55 +364,132 @@ jobs:
       - name: Configure Linux build
         run: |
           cd vlc-source
-          mkdir -p build-linux-${{ matrix.arch }}
+          mkdir -p build-linux-${{ matrix.arch }}-${{ matrix.compiler }}
           
           if [ "${{ matrix.cross_compile }}" = "true" ]; then
-            if [ "${{ matrix.arch }}" = "arm64" ]; then
-              cat > cross-linux-arm64.meson << EOF
-              [binaries]
-              c = 'aarch64-linux-gnu-gcc'
-              cpp = 'aarch64-linux-gnu-g++'
-              ar = 'aarch64-linux-gnu-ar'
-              strip = 'aarch64-linux-gnu-strip'
-              pkgconfig = 'aarch64-linux-gnu-pkg-config'
-              
-              [host_machine]
-              system = 'linux'
-              cpu_family = 'aarch64'
-              cpu = 'arm64'
-              endian = 'little'
-              EOF
-              CROSS_FILE="cross-linux-arm64.meson"
+            if [ "${{ matrix.compiler }}" = "clang" ]; then
+              if [ "${{ matrix.arch }}" = "arm64" ]; then
+                cat > cross-linux-arm64-clang.meson << EOF
+                [binaries]
+                c = 'clang'
+                cpp = 'clang++'
+                ar = 'llvm-ar'
+                strip = 'llvm-strip'
+                pkgconfig = 'pkg-config'
+                
+                [host_machine]
+                system = 'linux'
+                cpu_family = 'aarch64'
+                cpu = 'arm64'
+                endian = 'little'
+                EOF
+                CROSS_FILE="cross-linux-arm64-clang.meson"
+              else
+                cat > cross-linux-x86-clang.meson << EOF
+                [binaries]
+                c = 'clang'
+                cpp = 'clang++'
+                ar = 'llvm-ar'
+                strip = 'llvm-strip'
+                pkgconfig = 'pkg-config'
+                
+                [host_machine]
+                system = 'linux'
+                cpu_family = 'x86'
+                cpu = 'i686'
+                endian = 'little'
+                EOF
+                CROSS_FILE="cross-linux-x86-clang.meson"
+              fi
             else
-              cat > cross-linux-x86.meson << EOF
-              [binaries]
-              c = 'i686-linux-gnu-gcc'
-              cpp = 'i686-linux-gnu-g++'
-              ar = 'i686-linux-gnu-ar'
-              strip = 'i686-linux-gnu-strip'
-              pkgconfig = 'i686-linux-gnu-pkg-config'
-              
-              [host_machine]
-              system = 'linux'
-              cpu_family = 'x86'
-              cpu = 'i686'
-              endian = 'little'
-              EOF
-              CROSS_FILE="cross-linux-x86.meson"
+              if [ "${{ matrix.arch }}" = "arm64" ]; then
+                cat > cross-linux-arm64.meson << EOF
+                [binaries]
+                c = 'aarch64-linux-gnu-gcc'
+                cpp = 'aarch64-linux-gnu-g++'
+                ar = 'aarch64-linux-gnu-ar'
+                strip = 'aarch64-linux-gnu-strip'
+                pkgconfig = 'aarch64-linux-gnu-pkg-config'
+                
+                [host_machine]
+                system = 'linux'
+                cpu_family = 'aarch64'
+                cpu = 'arm64'
+                endian = 'little'
+                EOF
+                CROSS_FILE="cross-linux-arm64.meson"
+              else
+                cat > cross-linux-x86.meson << EOF
+                [binaries]
+                c = 'i686-linux-gnu-gcc'
+                cpp = 'i686-linux-gnu-g++'
+                ar = 'i686-linux-gnu-ar'
+                strip = 'i686-linux-gnu-strip'
+                pkgconfig = 'i686-linux-gnu-pkg-config'
+                
+                [host_machine]
+                system = 'linux'
+                cpu_family = 'x86'
+                cpu = 'i686'
+                endian = 'little'
+                EOF
+                CROSS_FILE="cross-linux-x86.meson"
+              fi
             fi
             MESON_ARGS="--cross-file $CROSS_FILE"
           else
+            if [ "${{ matrix.compiler }}" = "clang" ]; then
+              export CC=clang
+              export CXX=clang++
+            else
+              export CC=gcc
+              export CXX=g++
+            fi
             MESON_ARGS=""
           fi
           
-          meson setup build-linux-${{ matrix.arch }} $MESON_ARGS \
+          meson setup build-linux-${{ matrix.arch }}-${{ matrix.compiler }} $MESON_ARGS \
             -Dbuildtype=release \
             -Dvulkan=disabled
 
       - name: Build Linux
         run: |
           cd vlc-source
-          ninja -C build-linux-${{ matrix.arch }} -j$(nproc)
+          ninja -C build-linux-${{ matrix.arch }}-${{ matrix.compiler }} -j$(nproc)
+
+      - name: Collect artifacts
+        run: |
+          cd vlc-source
+          BUILD_DIR="build-linux-${{ matrix.arch }}-${{ matrix.compiler }}"
+          mkdir -p ../../dist/linux-${{ matrix.arch }}-${{ matrix.compiler }}/include/vlc
+          mkdir -p ../../dist/linux-${{ matrix.arch }}-${{ matrix.compiler }}/lib
+          
+          find "$BUILD_DIR" -name "*.h" -path "*/include/*" -exec cp {} ../../dist/linux-${{ matrix.arch }}-${{ matrix.compiler }}/include/vlc/ \;
+          find "$BUILD_DIR/../include" -name "*.h" -exec cp {} ../../dist/linux-${{ matrix.arch }}-${{ matrix.compiler }}/include/vlc/ \; 2>/dev/null || true
+          find "$BUILD_DIR" \( -name "*.so*" -o -name "*.a" \) -exec cp {} ../../dist/linux-${{ matrix.arch }}-${{ matrix.compiler }}/lib/ \;
+
+      - name: Verify artifacts
+        run: |
+          DIST_DIR="../dist/linux-${{ matrix.arch }}-${{ matrix.compiler }}"
+          echo "=== Library files ==="
+          ls -lh "$DIST_DIR/lib/"
+          echo ""
+          echo "=== Header files ==="
+          ls -lh "$DIST_DIR/include/vlc/" | head -30
+
+      - name: Create package
+        run: |
+          cd dist
+          zip -r "libvlc-linux-${{ matrix.arch }}-${{ matrix.compiler }}-built.zip" "linux-${{ matrix.arch }}-${{ matrix.compiler }}/"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: libvlc-linux-${{ matrix.arch }}-${{ matrix.compiler }}-built
+          path: |
+            dist/linux-${{ matrix.arch }}-${{ matrix.compiler }}/
+            dist/libvlc-linux-${{ matrix.arch }}-${{ matrix.compiler }}-built.zip
+          retention-days: 30
 
       - name: Collect artifacts
         run: |
@@ -432,7 +526,7 @@ jobs:
           retention-days: 30
 
   build-windows:
-    name: Build Windows-${{ matrix.arch }}
+    name: Build Windows-${{ matrix.arch }}-${{ matrix.compiler }}
     runs-on: windows-latest
     strategy:
       fail-fast: false
@@ -441,12 +535,27 @@ jobs:
           - arch: x86_64
             vs_arch: x64
             meson_arch: x86_64
+            compiler: msvc
+          - arch: x86_64
+            vs_arch: x64
+            meson_arch: x86_64
+            compiler: clang-cl
           - arch: arm64
             vs_arch: arm64
             meson_arch: arm64
+            compiler: msvc
+          - arch: arm64
+            vs_arch: arm64
+            meson_arch: arm64
+            compiler: clang-cl
           - arch: x86
             vs_arch: x86
             meson_arch: x86
+            compiler: msvc
+          - arch: x86
+            vs_arch: x86
+            meson_arch: x86
+            compiler: clang-cl
     timeout-minutes: 120
     steps:
       - name: Checkout repository
@@ -468,52 +577,89 @@ jobs:
         run: |
           git clone --depth 1 --branch ${{ github.event.inputs.vlc_branch }} ${{ env.VLC_REPO_URL }} vlc-source
 
-      - name: Configure Windows build (MSVC)
+      - name: Configure Windows build
+        shell: pwsh
         run: |
           cd vlc-source
-          mkdir build-windows-${{ matrix.arch }}
+          mkdir build-windows-${{ matrix.arch }}-${{ matrix.compiler }}
           
-          cat > cross-windows-${{ matrix.arch }}.meson << EOF
-          [binaries]
-          c = 'cl'
-          cpp = 'cl'
-          ar = 'lib'
-          link = 'link'
-          pkgconfig = 'pkg-config'
-          
-          [host_machine]
-          system = 'windows'
-          cpu_family = '${{ matrix.meson_arch }}'
-          cpu = '${{ matrix.meson_arch }}'
-          endian = 'little'
-          
-          [properties]
-          c_args = ['/MD', '/D_CRT_SECURE_NO_WARNINGS']
-          cpp_args = ['/MD', '/D_CRT_SECURE_NO_WARNINGS', '/EHsc']
-          link_args = ['/MANIFEST:NO']
-          EOF
-          
-          # Setup MSVC environment
-          & "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" ${{ matrix.vs_arch }}
-          
-          meson setup build-windows-${{ matrix.arch }} \
-            --cross-file cross-windows-${{ matrix.arch }}.meson \
-            -Dbuildtype=release \
-            -Dvulkan=disabled \
-            -Dlua=disabled \
-            -Djavascript=disabled
+          if ("${{ matrix.compiler }}" -eq "clang-cl") {
+            # Install LLVM/Clang for clang-cl
+            choco install llvm -y
+            refreshenv
+            
+            @"
+            [binaries]
+            c = 'clang-cl'
+            cpp = 'clang-cl'
+            ar = 'llvm-lib'
+            link = 'lld-link'
+            pkgconfig = 'pkg-config'
+            
+            [host_machine]
+            system = 'windows'
+            cpu_family = '${{ matrix.meson_arch }}'
+            cpu = '${{ matrix.meson_arch }}'
+            endian = 'little'
+            
+            [properties]
+            c_args = ['/MD', '/D_CRT_SECURE_NO_WARNINGS']
+            cpp_args = ['/MD', '/D_CRT_SECURE_NO_WARNINGS', '/EHsc']
+            link_args = ['/MANIFEST:NO']
+            "@ | Set-Content -Path "cross-windows-${{ matrix.arch }}-clang-cl.meson"
+            
+            # Setup MSVC environment for headers/libs
+            & "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" ${{ matrix.vs_arch }}
+            
+            meson setup build-windows-${{ matrix.arch }}-${{ matrix.compiler }} `
+              --cross-file cross-windows-${{ matrix.arch }}-clang-cl.meson `
+              -Dbuildtype=release `
+              -Dvulkan=disabled `
+              -Dlua=disabled
+          } else {
+            @"
+            [binaries]
+            c = 'cl'
+            cpp = 'cl'
+            ar = 'lib'
+            link = 'link'
+            pkgconfig = 'pkg-config'
+            
+            [host_machine]
+            system = 'windows'
+            cpu_family = '${{ matrix.meson_arch }}'
+            cpu = '${{ matrix.meson_arch }}'
+            endian = 'little'
+            
+            [properties]
+            c_args = ['/MD', '/D_CRT_SECURE_NO_WARNINGS']
+            cpp_args = ['/MD', '/D_CRT_SECURE_NO_WARNINGS', '/EHsc']
+            link_args = ['/MANIFEST:NO']
+            "@ | Set-Content -Path "cross-windows-${{ matrix.arch }}.meson"
+            
+            # Setup MSVC environment
+            & "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" ${{ matrix.vs_arch }}
+            
+            meson setup build-windows-${{ matrix.arch }}-${{ matrix.compiler }} `
+              --cross-file cross-windows-${{ matrix.arch }}.meson `
+              -Dbuildtype=release `
+              -Dvulkan=disabled `
+              -Dlua=disabled
+          }
 
       - name: Build Windows
+        shell: pwsh
         run: |
           cd vlc-source
           & "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" ${{ matrix.vs_arch }}
-          ninja -C build-windows-${{ matrix.arch }} -j$env:NUMBER_OF_PROCESSORS
+          ninja -C build-windows-${{ matrix.arch }}-${{ matrix.compiler }} -j$env:NUMBER_OF_PROCESSORS
 
       - name: Collect artifacts
+        shell: pwsh
         run: |
           cd vlc-source
-          $BUILD_DIR = "build-windows-${{ matrix.arch }}"
-          $DIST_DIR = "..\..\dist\windows-${{ matrix.arch }}"
+          $BUILD_DIR = "build-windows-${{ matrix.arch }}-${{ matrix.compiler }}"
+          $DIST_DIR = "..\..\dist\windows-${{ matrix.arch }}-${{ matrix.compiler }}"
           
           New-Item -ItemType Directory -Force -Path "$DIST_DIR\include\vlc"
           New-Item -ItemType Directory -Force -Path "$DIST_DIR\lib"
@@ -525,8 +671,9 @@ jobs:
           Get-ChildItem "$BUILD_DIR" -Recurse -Filter "*.lib", "*.dll", "*.pdb" | Copy-Item -Destination "$DIST_DIR\lib"
 
       - name: Verify artifacts
+        shell: pwsh
         run: |
-          $DIST_DIR = "..\dist\windows-${{ matrix.arch }}"
+          $DIST_DIR = "..\dist\windows-${{ matrix.arch }}-${{ matrix.compiler }}"
           Write-Host "=== Library files ==="
           Get-ChildItem "$DIST_DIR\lib" | Format-Table Name, Length
           Write-Host ""
@@ -534,22 +681,146 @@ jobs:
           Get-ChildItem "$DIST_DIR\include\vlc" | Select-Object -First 30 | Format-Table Name, Length
 
       - name: Create package
+        shell: pwsh
         run: |
           cd dist
-          Compress-Archive -Path "windows-${{ matrix.arch }}" -DestinationPath "libvlc-windows-${{ matrix.arch }}-built.zip" -Force
+          Compress-Archive -Path "windows-${{ matrix.arch }}-${{ matrix.compiler }}" -DestinationPath "libvlc-windows-${{ matrix.arch }}-${{ matrix.compiler }}-built.zip" -Force
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: libvlc-windows-${{ matrix.arch }}-built
+          name: libvlc-windows-${{ matrix.arch }}-${{ matrix.compiler }}-built
           path: |
-            dist/windows-${{ matrix.arch }}/
-            dist/libvlc-windows-${{ matrix.arch }}-built.zip
+            dist/windows-${{ matrix.arch }}-${{ matrix.compiler }}/
+            dist/libvlc-windows-${{ matrix.arch }}-${{ matrix.compiler }}-built.zip
+          retention-days: 30
+
+  build-freebsd:
+    name: Build FreeBSD-${{ matrix.arch }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+          - arch: arm64
+    timeout-minutes: 120
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup FreeBSD VM
+        uses: vmactions/freebsd-vm@v1
+        with:
+          prepare: |
+            pkg install -y meson ninja pkgconf llvm17 gcc13 git
+            # For arm64 cross-compile
+            if [ "${{ matrix.arch }}" = "arm64" ]; then
+              pkg install -y aarch64-binutils aarch64-gcc
+            fi
+
+      - name: Clone VLC source
+        uses: vmactions/freebsd-vm@v1
+        with:
+          run: |
+            git clone --depth 1 --branch ${{ github.event.inputs.vlc_branch }} ${{ env.VLC_REPO_URL }} vlc-source
+
+      - name: Configure FreeBSD build
+        uses: vmactions/freebsd-vm@v1
+        with:
+          run: |
+            cd vlc-source
+            mkdir -p build-freebsd-${{ matrix.arch }}
+            
+            if [ "${{ matrix.arch }}" = "arm64" ]; then
+              cat > cross-freebsd-arm64.meson << EOF
+              [binaries]
+              c = 'aarch64-unknown-freebsd14-gcc'
+              cpp = 'aarch64-unknown-freebsd14-g++'
+              ar = 'aarch64-unknown-freebsd14-ar'
+              strip = 'aarch64-unknown-freebsd14-strip'
+              pkgconfig = 'pkgconf'
+              
+              [host_machine]
+              system = 'freebsd'
+              cpu_family = 'aarch64'
+              cpu = 'arm64'
+              endian = 'little'
+              EOF
+              MESON_ARGS="--cross-file cross-freebsd-arm64.meson"
+            else
+              cat > cross-freebsd-x86_64.meson << EOF
+              [binaries]
+              c = 'clang17'
+              cpp = 'clang++17'
+              objc = 'clang17'
+              ar = 'llvm-ar17'
+              strip = 'llvm-strip17'
+              pkgconfig = 'pkgconf'
+              
+              [host_machine]
+              system = 'freebsd'
+              cpu_family = 'x86_64'
+              cpu = 'x86_64'
+              endian = 'little'
+              EOF
+              MESON_ARGS="--cross-file cross-freebsd-x86_64.meson"
+            fi
+            
+            meson setup build-freebsd-${{ matrix.arch }} $MESON_ARGS \
+              -Dbuildtype=release \
+              -Dvulkan=disabled
+
+      - name: Build FreeBSD
+        uses: vmactions/freebsd-vm@v1
+        with:
+          run: |
+            cd vlc-source
+            ninja -C build-freebsd-${{ matrix.arch }} -j$(sysctl -n hw.ncpu)
+
+      - name: Collect artifacts
+        uses: vmactions/freebsd-vm@v1
+        with:
+          run: |
+            cd vlc-source
+            BUILD_DIR="build-freebsd-${{ matrix.arch }}"
+            mkdir -p ../../dist/freebsd-${{ matrix.arch }}/include/vlc
+            mkdir -p ../../dist/freebsd-${{ matrix.arch }}/lib
+            
+            find "$BUILD_DIR" -name "*.h" -path "*/include/*" -exec cp {} ../../dist/freebsd-${{ matrix.arch }}/include/vlc/ \;
+            find "$BUILD_DIR/../include" -name "*.h" -exec cp {} ../../dist/freebsd-${{ matrix.arch }}/include/vlc/ \; 2>/dev/null || true
+            find "$BUILD_DIR" \( -name "*.so*" -o -name "*.a" \) -exec cp {} ../../dist/freebsd-${{ matrix.arch }}/lib/ \;
+
+      - name: Verify artifacts
+        uses: vmactions/freebsd-vm@v1
+        with:
+          run: |
+            DIST_DIR="../dist/freebsd-${{ matrix.arch }}"
+            echo "=== Library files ==="
+            ls -lh "$DIST_DIR/lib/"
+            echo ""
+            echo "=== Header files ==="
+            ls -lh "$DIST_DIR/include/vlc/" | head -30
+
+      - name: Create package
+        uses: vmactions/freebsd-vm@v1
+        with:
+          run: |
+            cd dist
+            zip -r "libvlc-freebsd-${{ matrix.arch }}-built.zip" "freebsd-${{ matrix.arch }}/"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: libvlc-freebsd-${{ matrix.arch }}-built
+          path: |
+            dist/freebsd-${{ matrix.arch }}/
+            dist/libvlc-freebsd-${{ matrix.arch }}-built.zip
           retention-days: 30
 
   create-release:
     name: Create GitHub Release
-    needs: [build-ios-macos, build-android, build-linux, build-windows]
+    needs: [build-ios-macos, build-android, build-linux, build-windows, build-freebsd]
     if: github.event_name == 'workflow_dispatch' && inputs.create_release == 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -598,8 +869,9 @@ jobs:
             - iOS (arm64, armv7)
             - Android (arm64, armv7, x86_64, x86)
             - macOS (arm64, x86_64)
-            - Linux (x86_64, arm64, x86)
-            - Windows (x86_64, arm64, x86)
+            - Linux (x86_64, arm64, x86) — GCC & Clang
+            - Windows (x86_64, arm64, x86) — MSVC & Clang-CL
+            - FreeBSD (x86_64, arm64)
             
             Each package contains:
             - `include/vlc/` - C/C++ headers

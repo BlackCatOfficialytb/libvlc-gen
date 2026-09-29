@@ -491,7 +491,7 @@ c = '{ndk_arch}-linux-android{api}-clang'
 cpp = '{ndk_arch}-linux-android{api}-clang++'
 ar = '{ndk_arch}-linux-android-ar'
 strip = '{ndk_arch}-linux-android-strip'
-pkgconfig = 'pkg-config'
+pkg-config = 'pkg-config'
 
 [host_machine]
 system = 'linux'
@@ -499,7 +499,7 @@ cpu_family = '{'aarch64' if arch == 'arm64' else 'arm' if arch == 'armv7' else a
 cpu = '{ndk_arch}'
 endian = 'little'
 
-[properties]
+[built-in options]
 c_args = ['-fPIC']
 cpp_args = ['-fPIC', '-frtti', '-fexceptions']
 link_args = ['-fPIC']
@@ -516,7 +516,6 @@ link_args = ['-fPIC']
         "-Dbuildtype=release",
         "-Dvulkan=disabled",
         "-Dlua=disabled",
-        "-Dandroid=true",
     ]
     
     result = run_cmd(meson_args, cwd=src_dir, env=env)
@@ -548,14 +547,17 @@ def build_ios(src_dir: Path, arch: str, output_dir: Path) -> bool:
     
     cross_file = src_dir / f"cross-ios-{arch}.meson"
     cpu_family = "aarch64" if arch == "arm64" else "arm"
+    sdk_path = f'/Applications/Xcode.app/Contents/Developer/Platforms/{sdk}.platform/Developer/SDKs/{sdk}.sdk'
+    clang_path = f'/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang'
     cross_content = f"""
 [binaries]
-c = 'xcrun -sdk {sdk} clang'
-cpp = 'xcrun -sdk {sdk} clang++'
-objc = 'xcrun -sdk {sdk} clang'
+c = '{clang_path}'
+cpp = '{clang_path}++'
+objc = '{clang_path}'
+objcpp = '{clang_path}++'
 ar = 'xcrun -sdk {sdk} ar'
 strip = 'xcrun -sdk {sdk} strip'
-pkgconfig = 'pkg-config'
+pkg-config = 'pkg-config'
 
 [host_machine]
 system = 'darwin'
@@ -563,12 +565,12 @@ cpu_family = '{cpu_family}'
 cpu = '{arch}'
 endian = 'little'
 
-[properties]
-sys_root = '/Applications/Xcode.app/Contents/Developer/Platforms/{sdk}.platform/Developer/SDKs/{sdk}.sdk'
-c_args = ['-arch', '{arch}', '-isysroot', '/Applications/Xcode.app/Contents/Developer/Platforms/{sdk}.platform/Developer/SDKs/{sdk}.sdk', '-miphoneos-version-min={deployment}']
-cpp_args = ['-arch', '{arch}', '-isysroot', '/Applications/Xcode.app/Contents/Developer/Platforms/{sdk}.platform/Developer/SDKs/{sdk}.sdk', '-miphoneos-version-min={deployment}']
-objc_args = ['-arch', '{arch}', '-isysroot', '/Applications/Xcode.app/Contents/Developer/Platforms/{sdk}.platform/Developer/SDKs/{sdk}.sdk', '-miphoneos-version-min={deployment}']
-link_args = ['-arch', '{arch}', '-isysroot', '/Applications/Xcode.app/Contents/Developer/Platforms/{sdk}.platform/Developer/SDKs/{sdk}.sdk', '-miphoneos-version-min={deployment}']
+[built-in options]
+c_args = ['-arch', '{arch}', '-isysroot', '{sdk_path}', '-miphoneos-version-min={deployment}']
+cpp_args = ['-arch', '{arch}', '-isysroot', '{sdk_path}', '-miphoneos-version-min={deployment}']
+objc_args = ['-arch', '{arch}', '-isysroot', '{sdk_path}', '-miphoneos-version-min={deployment}']
+objcpp_args = ['-arch', '{arch}', '-isysroot', '{sdk_path}', '-miphoneos-version-min={deployment}']
+link_args = ['-arch', '{arch}', '-isysroot', '{sdk_path}', '-miphoneos-version-min={deployment}']
 """
     cross_file.write_text(cross_content.strip())
     
@@ -607,9 +609,10 @@ def build_macos(src_dir: Path, arch: str, output_dir: Path) -> bool:
 c = 'clang'
 cpp = 'clang++'
 objc = 'clang'
+objcpp = 'clang++'
 ar = 'ar'
 strip = 'strip'
-pkgconfig = 'pkg-config'
+pkg-config = 'pkg-config'
 
 [host_machine]
 system = 'darwin'
@@ -617,10 +620,11 @@ cpu_family = '{cpu_family}'
 cpu = '{arch}'
 endian = 'little'
 
-[properties]
+[built-in options]
 c_args = ['-arch', '{arch}', '-mmacosx-version-min={deployment}']
 cpp_args = ['-arch', '{arch}', '-mmacosx-version-min={deployment}']
 objc_args = ['-arch', '{arch}', '-mmacosx-version-min={deployment}']
+objcpp_args = ['-arch', '{arch}', '-mmacosx-version-min={deployment}']
 link_args = ['-arch', '{arch}', '-mmacosx-version-min={deployment}']
 """
     cross_file.write_text(cross_content.strip())
@@ -661,13 +665,18 @@ c = 'clang'
 cpp = 'clang++'
 ar = 'llvm-ar'
 strip = 'llvm-strip'
-pkgconfig = 'pkg-config'
+pkg-config = 'pkg-config'
 
 [host_machine]
 system = 'linux'
 cpu_family = 'aarch64'
 cpu = 'arm64'
 endian = 'little'
+
+[built-in options]
+c_args = ['-fPIC']
+cpp_args = ['-fPIC', '-frtti', '-fexceptions']
+link_args = ['-fPIC']
 """
             elif arch == "x86":
                 cross_content = """
@@ -676,13 +685,18 @@ c = 'clang'
 cpp = 'clang++'
 ar = 'llvm-ar'
 strip = 'llvm-strip'
-pkgconfig = 'pkg-config'
+pkg-config = 'pkg-config'
 
 [host_machine]
 system = 'linux'
 cpu_family = 'x86'
 cpu = 'i686'
 endian = 'little'
+
+[built-in options]
+c_args = ['-fPIC']
+cpp_args = ['-fPIC', '-frtti', '-fexceptions']
+link_args = ['-fPIC']
 """
             else:
                 Logger.error(f"Unsupported Linux cross-compile arch for clang: {arch}")
@@ -695,13 +709,18 @@ c = 'aarch64-linux-gnu-gcc'
 cpp = 'aarch64-linux-gnu-g++'
 ar = 'aarch64-linux-gnu-ar'
 strip = 'aarch64-linux-gnu-strip'
-pkgconfig = 'aarch64-linux-gnu-pkg-config'
+pkg-config = 'aarch64-linux-gnu-pkg-config'
 
 [host_machine]
 system = 'linux'
 cpu_family = 'aarch64'
 cpu = 'arm64'
 endian = 'little'
+
+[built-in options]
+c_args = ['-fPIC']
+cpp_args = ['-fPIC', '-frtti', '-fexceptions']
+link_args = ['-fPIC']
 """
             elif arch == "x86":
                 cross_content = """
@@ -710,13 +729,18 @@ c = 'i686-linux-gnu-gcc'
 cpp = 'i686-linux-gnu-g++'
 ar = 'i686-linux-gnu-ar'
 strip = 'i686-linux-gnu-strip'
-pkgconfig = 'i686-linux-gnu-pkg-config'
+pkg-config = 'i686-linux-gnu-pkg-config'
 
 [host_machine]
 system = 'linux'
 cpu_family = 'x86'
 cpu = 'i686'
 endian = 'little'
+
+[built-in options]
+c_args = ['-fPIC']
+cpp_args = ['-fPIC', '-frtti', '-fexceptions']
+link_args = ['-fPIC']
 """
             else:
                 Logger.error(f"Unsupported Linux cross-compile arch for gcc: {arch}")
@@ -770,7 +794,7 @@ c = 'clang-cl'
 cpp = 'clang-cl'
 ar = 'llvm-lib'
 link = 'lld-link'
-pkgconfig = 'pkg-config'
+pkg-config = 'pkg-config'
 
 [host_machine]
 system = 'windows'
@@ -778,7 +802,7 @@ cpu_family = '{meson_arch}'
 cpu = '{meson_arch}'
 endian = 'little'
 
-[properties]
+[built-in options]
 c_args = ['/MD', '/D_CRT_SECURE_NO_WARNINGS']
 cpp_args = ['/MD', '/D_CRT_SECURE_NO_WARNINGS', '/EHsc']
 link_args = ['/MANIFEST:NO']
@@ -790,7 +814,7 @@ c = 'cl'
 cpp = 'cl'
 ar = 'lib'
 link = 'link'
-pkgconfig = 'pkg-config'
+pkg-config = 'pkg-config'
 
 [host_machine]
 system = 'windows'
@@ -798,7 +822,7 @@ cpu_family = '{meson_arch}'
 cpu = '{meson_arch}'
 endian = 'little'
 
-[properties]
+[built-in options]
 c_args = ['/MD', '/D_CRT_SECURE_NO_WARNINGS']
 cpp_args = ['/MD', '/D_CRT_SECURE_NO_WARNINGS', '/EHsc']
 link_args = ['/MANIFEST:NO']
@@ -860,13 +884,18 @@ c = 'aarch64-unknown-freebsd14-gcc'
 cpp = 'aarch64-unknown-freebsd14-g++'
 ar = 'aarch64-unknown-freebsd14-ar'
 strip = 'aarch64-unknown-freebsd14-strip'
-pkgconfig = 'pkgconf'
+pkg-config = 'pkgconf'
 
 [host_machine]
 system = 'freebsd'
 cpu_family = 'aarch64'
 cpu = 'arm64'
 endian = 'little'
+
+[built-in options]
+c_args = ['-fPIC']
+cpp_args = ['-fPIC', '-frtti', '-fexceptions']
+link_args = ['-fPIC']
 """
         cross_file.write_text(cross_content.strip())
         meson_args.extend([f"--cross-file={cross_file}"])

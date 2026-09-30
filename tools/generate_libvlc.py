@@ -522,7 +522,7 @@ link_args = ['-fPIC']
     if result.returncode != 0:
         return False
     
-    result = run_cmd(["ninja", "-C", str(build_dir), "-j$(nproc)"], cwd=src_dir, env=env)
+    result = run_cmd(["ninja", "-C", str(build_dir), f"-j{os.cpu_count()}"], cwd=src_dir, env=env)
     if result.returncode != 0:
         return False
     
@@ -548,13 +548,12 @@ def build_ios(src_dir: Path, arch: str, output_dir: Path) -> bool:
     cross_file = src_dir / f"cross-ios-{arch}.meson"
     cpu_family = "aarch64" if arch == "arm64" else "arm"
     sdk_path = f'/Applications/Xcode.app/Contents/Developer/Platforms/{sdk}.platform/Developer/SDKs/{sdk}.sdk'
-    clang_path = f'/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang'
     cross_content = f"""
 [binaries]
-c = '{clang_path}'
-cpp = '{clang_path}++'
-objc = '{clang_path}'
-objcpp = '{clang_path}++'
+c = 'clang'
+cpp = 'clang++'
+objc = 'clang'
+objcpp = 'clang++'
 ar = 'xcrun -sdk {sdk} ar'
 strip = 'xcrun -sdk {sdk} strip'
 pkg-config = 'pkg-config'
@@ -880,10 +879,10 @@ def build_freebsd(src_dir: Path, arch: str, output_dir: Path) -> bool:
         cross_file = src_dir / f"cross-freebsd-{arch}.meson"
         cross_content = """
 [binaries]
-c = 'aarch64-unknown-freebsd14-gcc'
-cpp = 'aarch64-unknown-freebsd14-g++'
-ar = 'aarch64-unknown-freebsd14-ar'
-strip = 'aarch64-unknown-freebsd14-strip'
+c = 'clang'
+cpp = 'clang++'
+ar = 'llvm-ar'
+strip = 'llvm-strip'
 pkg-config = 'pkgconf'
 
 [host_machine]
@@ -893,9 +892,9 @@ cpu = 'arm64'
 endian = 'little'
 
 [built-in options]
-c_args = ['-fPIC']
-cpp_args = ['-fPIC', '-frtti', '-fexceptions']
-link_args = ['-fPIC']
+c_args = ['-fPIC', '--target=aarch64-unknown-freebsd14']
+cpp_args = ['-fPIC', '-frtti', '-fexceptions', '--target=aarch64-unknown-freebsd14']
+link_args = ['-fPIC', '--target=aarch64-unknown-freebsd14']
 """
         cross_file.write_text(cross_content.strip())
         meson_args.extend([f"--cross-file={cross_file}"])

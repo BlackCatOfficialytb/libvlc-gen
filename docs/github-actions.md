@@ -1,6 +1,7 @@
 # GitHub Actions Workflows
 
-CI/CD workflow configuration and usage for automated LibVLC builds.
+CI/CD workflow configuration and usage for
+automated LibVLC builds.
 
 ## Workflows
 
@@ -8,26 +9,29 @@ CI/CD workflow configuration and usage for automated LibVLC builds.
 
 Downloads official VideoLAN nightly builds for all platforms.
 
-#### Triggers
+#### Fetch Triggers
 
 - **Manual**: `workflow_dispatch` with OS/arch selection
 - **Scheduled**: Daily at 02:00 UTC
 
-#### Usage
+#### Fetch Usage
 
 1. Go to **Actions** → "Fetch LibVLC Prebuilt Artifacts"
 2. Click **"Run workflow"**
 3. Select target OSes (comma-separated) or leave blank for all
 4. Optionally enable **"Create Release"** to publish to GitHub Releases
 
-#### Inputs
+#### Fetch Inputs
 
-| Input | Type | Default | Description |
-|-------|------|---------|-------------|
-| `target_oses` | string | `all` | Comma-separated list: `ios,android,macos,linux,windows` |
-| `create_release` | boolean | `false` | Create GitHub Release with artifacts |
+<!-- markdownlint-disable MD013 MD060 -->
+| Input          | Type    | Default | Description                              |
+|----------------|---------|---------|------------------------------------------|
+| `target_oses`  | string  | `all`   | Comma-separated list: `ios`, `android`,  |
+|                |         |         | `macos`, `linux`, `windows`              |
+| `create_release` | boolean | `false` | Create GitHub Release with artifacts     |
+<!-- markdownlint-enable MD013 MD060 -->
 
-#### Artifacts Produced
+#### Fetch Artifacts Produced
 
 - `libvlc-<os>-<arch>-prebuilt.zip` - Packaged headers + libraries
 - Individual artifacts for each platform/arch combination
@@ -36,11 +40,11 @@ Downloads official VideoLAN nightly builds for all platforms.
 
 Compiles LibVLC from source using native toolchains on each platform.
 
-#### Triggers
+#### Build Triggers
 
 - **Manual**: `workflow_dispatch` with branch/tag parameter
 
-#### Usage
+#### Build Usage
 
 1. Go to **Actions** → "Build LibVLC from Source"
 2. Click **"Run workflow"**
@@ -48,25 +52,29 @@ Compiles LibVLC from source using native toolchains on each platform.
 4. Select target OSes or leave blank for all
 5. Optionally enable **"Create Release"**
 
-#### Inputs
+#### Build Inputs
 
-| Input | Type | Default | Description |
-|-------|------|---------|-------------|
-| `vlc_branch` | string | `master` | VLC branch/tag to build |
-| `target_oses` | string | `all` | Comma-separated list of target OSes |
+<!-- markdownlint-disable MD013 MD060 -->
+| Input           | Type    | Default | Description                          |
+|-----------------|---------|---------|--------------------------------------|
+| `vlc_branch`    | string  | `master` | VLC branch/tag to build              |
+| `target_oses`   | string  | `all`   | Comma-separated list of target OSes  |
 | `create_release` | boolean | `false` | Create GitHub Release with artifacts |
+<!-- markdownlint-enable MD013 MD060 -->
 
 #### Build Matrix
 
-| Platform | Runner | Toolchain |
-|----------|--------|-----------|
-| iOS/macOS | `macos-14` | Xcode + Meson/Ninja |
-| Android | `ubuntu-latest` | Android NDK r27b + Meson |
-| Linux | `ubuntu-latest` | GCC/Clang cross-compilers + Meson |
-| Windows | `windows-latest` | MSVC 2022 + Meson/Ninja |
-| FreeBSD | `ubuntu-latest` | Cross-compilation via qemu-user |
+<!-- markdownlint-disable MD013 MD060 -->
+| Platform  | Runner         | Toolchain                          |
+|-----------|----------------|------------------------------------|
+| iOS/macOS | `macos-14`     | Xcode + Meson/Ninja                |
+| Android   | `ubuntu-latest` | Android NDK r27b + Meson           |
+| Linux     | `ubuntu-latest` | GCC/Clang cross-compilers + Meson  |
+| Windows   | `windows-latest` | MSVC 2022 + Meson/Ninja            |
+| FreeBSD   | `ubuntu-latest` | Cross-compilation via qemu-user    |
+<!-- markdownlint-enable MD013 MD060 -->
 
-#### Artifacts Produced
+#### Build Artifacts Produced
 
 - `libvlc-<os>-<arch>-built.zip` - Packaged headers + libraries
 - Individual artifacts for each platform/arch combination
@@ -78,6 +86,7 @@ Compiles LibVLC from source using native toolchains on each platform.
 No secrets required for public VideoLAN artifacts.
 
 For private repositories or custom artifact hosting:
+
 - `GH_TOKEN` - GitHub token for release creation (auto-provided)
 
 ### Customization
@@ -164,6 +173,7 @@ If custom path needed, set `VCVARS_PATH` environment variable.
 ### Android NDK Version
 
 Update in workflow:
+
 ```yaml
 - name: Setup Android NDK
   uses: android-actions/setup-android@v2

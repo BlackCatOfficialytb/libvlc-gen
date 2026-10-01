@@ -1,6 +1,7 @@
 # Build Guide
 
-Platform-specific build requirements and troubleshooting for building LibVLC from source.
+Platform-specific build requirements and troubleshooting for
+building LibVLC from source.
 
 ## Prerequisites by Platform
 
@@ -14,6 +15,7 @@ sudo apt-get update && sudo apt-get install -y \
 ```
 
 **Cross-compilation:**
+
 - `arm64`: `aarch64-linux-gnu` toolchain
 - `x86`: `i686-linux-gnu` toolchain
 
@@ -26,6 +28,7 @@ xcode-select --install
 ```
 
 **iOS builds require:**
+
 - Xcode with iOS SDK
 - `xcodebuild -showsdks` to verify available SDKs
 
@@ -38,6 +41,7 @@ choco install meson ninja pkg-config -y
 ```
 
 **Visual Studio 2022** (Community/Professional/Enterprise) with:
+
 - Desktop development with C++
 - Windows 10/11 SDK
 
@@ -69,34 +73,34 @@ The build process uses Meson/Ninja:
 
 ## Platform-Specific Details
 
-### iOS / macOS
+### iOS / macOS Build Details
 
 - Uses Xcode's clang toolchain
 - Cross-file specifies SDK path and architecture
 - Supports both device (arm64) and simulator (x86_64/arm64)
 - Bitcode disabled by default
 
-### Android
+### Android Build Details
 
 - Uses Android NDK toolchain
 - Cross-file generated with NDK paths
 - Supports all 4 architectures: arm64, armv7, x86_64, x86
 - Requires `ANDROID_NDK_HOME` set
 
-### Linux
+### Linux Build Details
 
 - Native builds use system GCC/Clang
 - Cross-compilation uses installed cross-toolchains
 - Static linking preferred for portability
 
-### Windows
+### Windows Build Details
 
 - Uses MSVC (Visual Studio) via `vcvarsall.bat`
 - Supports `msvc` and `clang-cl` compilers
 - Automatically detects VS installation paths
 - DLL + import library (.lib) produced
 
-### FreeBSD
+### FreeBSD Build Details
 
 - Native builds only (no cross-compilation tested)
 - Uses system clang
@@ -107,44 +111,52 @@ The build process uses Meson/Ninja:
 ### Common Issues
 
 **Meson not found:**
+
 ```bash
 pip install meson ninja
 # or use system package manager
 ```
 
 **vcvarsall.bat not found (Windows):**
+
 - Ensure Visual Studio 2022 is installed with C++ workload
 - Script checks Enterprise, Community, and (x86) paths
 
 **Android NDK not found:**
+
 ```bash
 export ANDROID_NDK_HOME=/path/to/ndk
 # Verify: $ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake exists
 ```
 
 **iOS SDK not found:**
+
 ```bash
 xcodebuild -showsdks
 # Ensure iOS SDK is listed
 ```
 
 **Cross-compilation fails (Linux):**
+
 - Install cross-toolchains: `gcc-aarch64-linux-gnu`, `gcc-i686-linux-gnu`
 - Verify: `aarch64-linux-gnu-gcc --version`
 
 ### Build Failures
 
 **Out of memory during ninja:**
+
 ```bash
 # Limit parallel jobs
 ninja -C build_dir -j4
 ```
 
 **Missing dependencies:**
+
 - Check `meson.log` in build directory
 - Install missing `-dev` packages
 
 **Git clone fails:**
+
 - Check network connectivity
 - Try `--branch` with specific tag (e.g., `3.0.20`)
 
@@ -153,6 +165,7 @@ ninja -C build_dir -j4
 ### Custom Compiler Flags
 
 Set environment variables before building:
+
 ```bash
 export CFLAGS="-O2 -pipe"
 export CXXFLAGS="-O2 -pipe"
@@ -166,6 +179,7 @@ Edit the `meson_args` list in `build_<platform>()` functions in `generate_libvlc
 ### Shallow Clone Depth
 
 Default is `--depth 1`. For full history:
+
 ```python
 # In generate_libvlc.py, modify:
 result = run_cmd(["git", "clone", "--branch", branch, source_url, str(src_dir)])
@@ -174,6 +188,7 @@ result = run_cmd(["git", "clone", "--branch", branch, source_url, str(src_dir)])
 ## Verification
 
 After build, verify output:
+
 ```bash
 # Check libraries exist
 ls -la dist/<target>-<arch>/lib/

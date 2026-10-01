@@ -1,12 +1,15 @@
 # Architecture
 
-Internal architecture and extension points for libvlc-gen.
+Internal architecture and extension points for
+libvlc-gen.
 
 ## Overview
 
-`libvlc-gen` is a single-file Python CLI (`tools/generate_libvlc.py`) with a modular internal structure:
+`libvlc-gen` is a single-file Python CLI
+(`tools/generate_libvlc.py`) with a modular internal structure:
 
-```
+<!-- markdownlint-disable MD013 -->
+```txt
 generate_libvlc.py
 ├── Constants & Configuration
 ├── Logger (colorized output)
@@ -36,6 +39,27 @@ generate_libvlc.py
 │   ├── fetch_prebuilt()
 │   └── build_from_source()
 └── CLI Entry Point (main())
+│   ├── organize_output() - standardize output layout
+│   └── create_package() - zip packaging
+├── Fetch Functions (per-platform)
+│   ├── fetch_ios_prebuilt()
+│   ├── fetch_android_prebuilt()
+│   ├── fetch_macos_prebuilt()
+│   ├── fetch_linux_prebuilt()
+│   ├── fetch_windows_prebuilt()
+│   └── fetch_freebsd_prebuilt()
+├── Build Functions (per-platform)
+│   ├── build_ios()
+│   ├── build_android()
+│   ├── build_macos()
+│   ├── build_linux()
+│   ├── build_windows()
+│   └── build_freebsd()
+├── High-Level Orchestration
+│   ├── fetch_prebuilt()
+│   └── build_from_source()
+└── CLI Entry Point (main())
+<!-- markdownlint-enable MD013 -->
 ```
 
 ## Key Design Decisions
@@ -49,10 +73,12 @@ generate_libvlc.py
 ### Platform Abstraction
 
 Each platform has:
+
 - `fetch_<os>_prebuilt()` - downloads from VideoLAN artifacts
 - `build_<os>()` - compiles from source via Meson/Ninja
 
 Common interface:
+
 ```python
 def fetch_<os>_prebuilt(arch: str, output_dir: Path) -> bool
 def build_<os>(src_dir: Path, arch: str, output_dir: Path) -> bool
@@ -61,6 +87,7 @@ def build_<os>(src_dir: Path, arch: str, output_dir: Path) -> bool
 ### Cross-Compilation via Meson
 
 All builds use Meson cross-files:
+
 - Generated dynamically per platform/arch
 - Specifies compiler, linker, flags, SDK paths
 - Single build system for all targets
@@ -68,7 +95,8 @@ All builds use Meson cross-files:
 ### Artifact Organization
 
 Standardized output layout regardless of source:
-```
+
+```txt
 <output>/<os>-<arch>[-<compiler>]/
 ├── include/vlc/*.h
 └── lib/libvlc.*, libvlccore.*
@@ -102,6 +130,7 @@ Implement custom fetch logic in platform fetch function.
 
 Modify `meson_args` in platform build functions.
 Common options:
+
 - `-Dbuildtype=release|debug`
 - `-Dvulkan=enabled|disabled`
 - `-Dlua=enabled|disabled`
@@ -109,7 +138,7 @@ Common options:
 
 ## Data Flow
 
-```
+```text
 User Input (CLI args)
        │
        ▼
@@ -148,6 +177,7 @@ print_summary() ──► Success exit
 ## Logging
 
 `Logger` class with levels:
+
 - `info()` - General progress (cyan)
 - `success()` - Completed operations (green)
 - `warning()` - Non-fatal issues (yellow)
@@ -159,6 +189,7 @@ Color output via `colorama` (auto-disabled on non-TTY).
 ## Testing
 
 No formal test suite. Manual verification:
+
 ```bash
 # Test fetch
 python tools/generate_libvlc.py --mode fetch --target-os linux --arch x86_64

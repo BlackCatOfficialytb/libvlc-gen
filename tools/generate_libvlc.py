@@ -5,7 +5,6 @@ Fetches or builds LibVLC binaries for all supported platforms.
 """
 
 import argparse
-import hashlib
 import os
 import platform
 import shutil
@@ -16,7 +15,6 @@ import tempfile
 import zipfile
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
-from urllib.parse import urljoin
 
 import requests
 from tqdm import tqdm
@@ -108,7 +106,7 @@ def get_artifact_name(target_os: str, arch: str, mode: str) -> str:
 def run_cmd(cmd: List[str], cwd: Optional[Path] = None, env: Optional[Dict] = None,
             capture: bool = False) -> subprocess.CompletedProcess:
     Logger.debug(f"Running: {' '.join(cmd)}")
-    result = subprocess.run(cmd, cwd=cwd, env=env, capture_output=capture, text=True)
+    result = subprocess.run(cmd, cwd=cwd, env=env, capture_output=capture, text=True, check=False)
     if result.returncode != 0 and capture:
         Logger.error(f"Command failed: {' '.join(cmd)}")
         Logger.error(f"stderr: {result.stderr}")
@@ -127,7 +125,7 @@ def download_file(url: str, dest: Path, chunk_size: int = 8192) -> bool:
                         f.write(chunk)
                         pbar.update(len(chunk))
         return True
-    except Exception as e:
+    except (requests.RequestException, OSError, IOError) as e:
         Logger.error(f"Download failed: {e}")
         return False
 
@@ -144,7 +142,7 @@ def extract_archive(archive: Path, dest: Path) -> bool:
             Logger.error(f"Unsupported archive format: {archive.suffix}")
             return False
         return True
-    except Exception as e:
+    except (zipfile.BadZipFile, tarfile.TarError, OSError, IOError) as e:
         Logger.error(f"Extraction failed: {e}")
         return False
 
@@ -220,15 +218,15 @@ def fetch_prebuilt(target_os: str, arch: str, output_dir: Path) -> bool:
 
     if target_os == "android":
         return fetch_android_prebuilt(arch, output_dir)
-    elif target_os == "ios":
+    if target_os == "ios":
         return fetch_ios_prebuilt(arch, output_dir)
-    elif target_os == "macos":
+    if target_os == "macos":
         return fetch_macos_prebuilt(arch, output_dir)
-    elif target_os == "linux":
+    if target_os == "linux":
         return fetch_linux_prebuilt(arch, output_dir)
-    elif target_os == "windows":
+    if target_os == "windows":
         return fetch_windows_prebuilt(arch, output_dir)
-    elif target_os == "freebsd":
+    if target_os == "freebsd":
         return fetch_freebsd_prebuilt(arch, output_dir)
     return False
 
@@ -438,7 +436,7 @@ def fetch_windows_prebuilt(arch: str, output_dir: Path) -> bool:
         organize_output(libs, headers, output_dir, "windows", arch)
     return True
 
-def fetch_freebsd_prebuilt(arch: str, output_dir: Path) -> bool:
+def fetch_freebsd_prebuilt(_arch: str, _output_dir: Path) -> bool:
     Logger.warning("FreeBSD prebuilt binaries not available from official sources")
     return False
 
@@ -460,15 +458,15 @@ def build_from_source(target_os: str, arch: str, output_dir: Path,
 
         if target_os == "android":
             return build_android(src_dir, arch, output_dir)
-        elif target_os == "ios":
+        if target_os == "ios":
             return build_ios(src_dir, arch, output_dir)
-        elif target_os == "macos":
+        if target_os == "macos":
             return build_macos(src_dir, arch, output_dir)
-        elif target_os == "linux":
+        if target_os == "linux":
             return build_linux(src_dir, arch, output_dir, compiler)
-        elif target_os == "windows":
+        if target_os == "windows":
             return build_windows(src_dir, arch, output_dir, compiler)
-        elif target_os == "freebsd":
+        if target_os == "freebsd":
             return build_freebsd(src_dir, arch, output_dir)
     return False
 

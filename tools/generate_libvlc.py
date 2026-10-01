@@ -105,7 +105,8 @@ def get_artifact_name(target_os: str, arch: str, mode: str) -> str:
     return f"libvlc-{target_os}-{arch}-{suffix}"
 
 
-def run_cmd(cmd: List[str], cwd: Optional[Path] = None, env: Optional[Dict] = None, capture: bool = False) -> subprocess.CompletedProcess:
+def run_cmd(cmd: List[str], cwd: Optional[Path] = None, env: Optional[Dict] = None,
+            capture: bool = False) -> subprocess.CompletedProcess:
     Logger.debug(f"Running: {' '.join(cmd)}")
     result = subprocess.run(cmd, cwd=cwd, env=env, capture_output=capture, text=True)
     if result.returncode != 0 and capture:
@@ -119,11 +120,12 @@ def download_file(url: str, dest: Path, chunk_size: int = 8192) -> bool:
         response = requests.get(url, stream=True, timeout=30)
         response.raise_for_status()
         total = int(response.headers.get('content-length', 0))
-        with open(dest, 'wb') as f, tqdm(total=total, unit='B', unit_scale=True, desc=dest.name) as pbar:
-            for chunk in response.iter_content(chunk_size=chunk_size):
-                if chunk:
-                    f.write(chunk)
-                    pbar.update(len(chunk))
+        with open(dest, 'wb') as f:
+            with tqdm(total=total, unit='B', unit_scale=True, desc=dest.name) as pbar:
+                for chunk in response.iter_content(chunk_size=chunk_size):
+                    if chunk:
+                        f.write(chunk)
+                        pbar.update(len(chunk))
         return True
     except Exception as e:
         Logger.error(f"Download failed: {e}")
@@ -165,7 +167,8 @@ def find_vlc_artifacts(search_root: Path, target_os: str) -> Tuple[List[Path], L
     return libs, headers
 
 
-def organize_output(libs: List[Path], headers: List[Path], output_dir: Path, target_os: str, arch: str) -> Path:
+def organize_output(libs: List[Path], headers: List[Path],
+                    output_dir: Path, target_os: str, arch: str) -> Path:
     dist_dir = output_dir / f"{target_os}-{arch}"
     include_dir = dist_dir / "include" / "vlc"
     lib_dir = dist_dir / "lib"
@@ -214,7 +217,7 @@ def print_summary(dist_dir: Path, target_os: str, arch: str) -> None:
 
 def fetch_prebuilt(target_os: str, arch: str, output_dir: Path) -> bool:
     Logger.info(f"Fetching prebuilt LibVLC for {target_os}-{arch}")
-    
+
     if target_os == "android":
         return fetch_android_prebuilt(arch, output_dir)
     elif target_os == "ios":
@@ -239,11 +242,13 @@ def try_download(url: str, archive: Path) -> bool:
             return False
         response.raise_for_status()
         total = int(response.headers.get('content-length', 0))
-        with open(archive, 'wb') as f, tqdm(total=total, unit='B', unit_scale=True, desc=archive.name) as pbar:
-            for chunk in response.iter_content(chunk_size=8192):
-                if chunk:
-                    f.write(chunk)
-                    pbar.update(len(chunk))
+        with open(archive, 'wb') as f:
+            with tqdm(total=total, unit='B', unit_scale=True,
+                      desc=archive.name) as pbar:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
+                        pbar.update(len(chunk))
         return True
     except requests.RequestException as e:
         Logger.warning(f"Download failed: {url} - {e}")
@@ -266,7 +271,7 @@ def fetch_android_prebuilt(arch: str, output_dir: Path) -> bool:
         f"{VLC_NIGHTLY_BASE}/android/{abi}/libvlc-android-{abi}.zip",
         f"{VLC_STABLE_BASE}/latest/android/{abi}/libvlc-android-{abi}.zip",
     ]
-    
+
     with tempfile.TemporaryDirectory() as tmp:
         archive = Path(tmp) / f"libvlc-android-{abi}.zip"
         for url in urls:
@@ -276,7 +281,7 @@ def fetch_android_prebuilt(arch: str, output_dir: Path) -> bool:
         else:
             Logger.error(f"All download attempts failed for Android {abi}")
             return False
-        
+
         extract_dir = Path(tmp) / "extracted"
         if not extract_archive(archive, extract_dir):
             return False
@@ -302,7 +307,7 @@ def fetch_ios_prebuilt(arch: str, output_dir: Path) -> bool:
         f"{VLC_NIGHTLY_BASE}/ios/{ios_arch}/libvlc-ios-{ios_arch}.zip",
         f"{VLC_STABLE_BASE}/latest/ios/{ios_arch}/libvlc-ios-{ios_arch}.zip",
     ]
-    
+
     with tempfile.TemporaryDirectory() as tmp:
         archive = Path(tmp) / f"libvlc-ios-{ios_arch}.zip"
         for url in urls:
@@ -312,7 +317,7 @@ def fetch_ios_prebuilt(arch: str, output_dir: Path) -> bool:
         else:
             Logger.error(f"All download attempts failed for iOS {ios_arch}")
             return False
-        
+
         extract_dir = Path(tmp) / "extracted"
         if not extract_archive(archive, extract_dir):
             return False
@@ -338,7 +343,7 @@ def fetch_macos_prebuilt(arch: str, output_dir: Path) -> bool:
         f"{VLC_NIGHTLY_BASE}/macos/{mac_arch}/libvlc-macos-{mac_arch}.tar.gz",
         f"{VLC_STABLE_BASE}/latest/macos/{mac_arch}/libvlc-macos-{mac_arch}.tar.gz",
     ]
-    
+
     with tempfile.TemporaryDirectory() as tmp:
         archive = Path(tmp) / f"libvlc-macos-{mac_arch}.tar.gz"
         for url in urls:
@@ -348,7 +353,7 @@ def fetch_macos_prebuilt(arch: str, output_dir: Path) -> bool:
         else:
             Logger.error(f"All download attempts failed for macOS {mac_arch}")
             return False
-        
+
         extract_dir = Path(tmp) / "extracted"
         if not extract_archive(archive, extract_dir):
             return False
@@ -375,7 +380,7 @@ def fetch_linux_prebuilt(arch: str, output_dir: Path) -> bool:
         f"{VLC_NIGHTLY_BASE}/linux/{linux_arch}/libvlc-linux-{linux_arch}.tar.gz",
         f"{VLC_STABLE_BASE}/latest/linux/{linux_arch}/libvlc-linux-{linux_arch}.tar.gz",
     ]
-    
+
     with tempfile.TemporaryDirectory() as tmp:
         archive = Path(tmp) / f"libvlc-linux-{linux_arch}.tar.gz"
         for url in urls:
@@ -385,7 +390,7 @@ def fetch_linux_prebuilt(arch: str, output_dir: Path) -> bool:
         else:
             Logger.error(f"All download attempts failed for Linux {linux_arch}")
             return False
-        
+
         extract_dir = Path(tmp) / "extracted"
         if not extract_archive(archive, extract_dir):
             return False
@@ -412,7 +417,7 @@ def fetch_windows_prebuilt(arch: str, output_dir: Path) -> bool:
         f"{VLC_NIGHTLY_BASE}/win64/libvlc-win64-{win_arch}.zip",
         f"{VLC_STABLE_BASE}/latest/win64/libvlc-win64-{win_arch}.zip",
     ]
-    
+
     with tempfile.TemporaryDirectory() as tmp:
         archive = Path(tmp) / f"libvlc-win64-{win_arch}.zip"
         for url in urls:
@@ -422,7 +427,7 @@ def fetch_windows_prebuilt(arch: str, output_dir: Path) -> bool:
         else:
             Logger.error(f"All download attempts failed for Windows {win_arch}")
             return False
-        
+
         extract_dir = Path(tmp) / "extracted"
         if not extract_archive(archive, extract_dir):
             return False
@@ -438,16 +443,21 @@ def fetch_freebsd_prebuilt(arch: str, output_dir: Path) -> bool:
     return False
 
 
-def build_from_source(target_os: str, arch: str, output_dir: Path, source_url: str, branch: str = "master", compiler: str = "gcc") -> bool:
+def build_from_source(target_os: str, arch: str, output_dir: Path,
+                      source_url: str, branch: str = "master",
+                      compiler: str = "gcc") -> bool:
     Logger.info(f"Building LibVLC from source for {target_os}-{arch} (compiler: {compiler})")
-    
+
     with tempfile.TemporaryDirectory() as tmp:
         src_dir = Path(tmp) / "vlc"
         Logger.info(f"Cloning {source_url} (branch: {branch})")
-        result = run_cmd(["git", "clone", "--depth", "1", "--branch", branch, source_url, str(src_dir)])
+        result = run_cmd([
+            "git", "clone", "--depth", "1", "--branch", branch,
+            source_url, str(src_dir)
+        ])
         if result.returncode != 0:
             return False
-        
+
         if target_os == "android":
             return build_android(src_dir, arch, output_dir)
         elif target_os == "ios":
@@ -468,22 +478,22 @@ def build_android(src_dir: Path, arch: str, output_dir: Path) -> bool:
     if not ndk_home:
         Logger.error("ANDROID_NDK_HOME not set. Install Android NDK r27b+ and set ANDROID_NDK_HOME")
         return False
-    
+
     abi_map = {"arm64": "arm64-v8a", "armv7": "armeabi-v7a", "x86_64": "x86_64", "x86": "x86"}
     ndk_arch_map = {"arm64": "aarch64", "armv7": "arm", "x86_64": "x86_64", "x86": "i686"}
     api_map = {"arm64": 21, "armv7": 21, "x86_64": 21, "x86": 21}
-    
+
     abi = abi_map.get(arch)
     ndk_arch = ndk_arch_map.get(arch)
     api = api_map.get(arch)
-    
+
     if not all([abi, ndk_arch, api]):
         Logger.error(f"Unsupported Android arch: {arch}")
         return False
-    
+
     build_dir = src_dir / f"build-android-{arch}"
     build_dir.mkdir(exist_ok=True)
-    
+
     cross_file = src_dir / f"cross-android-{arch}.meson"
     cross_content = f"""
 [binaries]
@@ -505,11 +515,11 @@ cpp_args = ['-fPIC', '-frtti', '-fexceptions']
 link_args = ['-fPIC']
 """
     cross_file.write_text(cross_content.strip())
-    
+
     env = os.environ.copy()
     env["PATH"] = f"{ndk_home}/toolchains/llvm/prebuilt/linux-x86_64/bin:" + env["PATH"]
     env["ANDROID_NDK_HOME"] = ndk_home
-    
+
     meson_args = [
         "meson", "setup", str(build_dir),
         f"--cross-file={cross_file}",
@@ -517,15 +527,15 @@ link_args = ['-fPIC']
         "-Dvulkan=disabled",
         "-Dlua=disabled",
     ]
-    
+
     result = run_cmd(meson_args, cwd=src_dir, env=env)
     if result.returncode != 0:
         return False
-    
+
     result = run_cmd(["ninja", "-C", str(build_dir), f"-j{os.cpu_count()}"], cwd=src_dir, env=env)
     if result.returncode != 0:
         return False
-    
+
     libs, headers = find_vlc_artifacts(build_dir, "android")
     organize_output(libs, headers, output_dir, "android", arch)
     return True
@@ -534,20 +544,23 @@ link_args = ['-fPIC']
 def build_ios(src_dir: Path, arch: str, output_dir: Path) -> bool:
     sdk_map = {"arm64": "iphoneos", "armv7": "iphoneos"}
     deployment_map = {"arm64": "13.0", "armv7": "13.0"}
-    
+
     sdk = sdk_map.get(arch)
     deployment = deployment_map.get(arch)
-    
+
     if not sdk:
         Logger.error(f"Unsupported iOS arch: {arch}")
         return False
-    
+
     build_dir = src_dir / f"build-ios-{arch}"
     build_dir.mkdir(exist_ok=True)
-    
+
     cross_file = src_dir / f"cross-ios-{arch}.meson"
     cpu_family = "aarch64" if arch == "arm64" else "arm"
-    sdk_path = f'/Applications/Xcode.app/Contents/Developer/Platforms/{sdk}.platform/Developer/SDKs/{sdk}.sdk'
+    sdk_path = (
+            f'/Applications/Xcode.app/Contents/Developer/Platforms/'
+            f'{sdk}.platform/Developer/SDKs/{sdk}.sdk'
+        )
     cross_content = f"""
 [binaries]
 c = 'clang'
@@ -572,7 +585,7 @@ objcpp_args = ['-arch', '{arch}', '-isysroot', '{sdk_path}', '-miphoneos-version
 link_args = ['-arch', '{arch}', '-isysroot', '{sdk_path}', '-miphoneos-version-min={deployment}']
 """
     cross_file.write_text(cross_content.strip())
-    
+
     meson_args = [
         "meson", "setup", str(build_dir),
         f"--cross-file={cross_file}",
@@ -580,15 +593,15 @@ link_args = ['-arch', '{arch}', '-isysroot', '{sdk_path}', '-miphoneos-version-m
         "-Dvulkan=disabled",
         "-Dlua=disabled",
     ]
-    
+
     result = run_cmd(meson_args, cwd=src_dir)
     if result.returncode != 0:
         return False
-    
+
     result = run_cmd(["ninja", "-C", str(build_dir), f"-j{os.cpu_count()}"], cwd=src_dir)
     if result.returncode != 0:
         return False
-    
+
     libs, headers = find_vlc_artifacts(build_dir, "ios")
     organize_output(libs, headers, output_dir, "ios", arch)
     return True
@@ -597,10 +610,10 @@ link_args = ['-arch', '{arch}', '-isysroot', '{sdk_path}', '-miphoneos-version-m
 def build_macos(src_dir: Path, arch: str, output_dir: Path) -> bool:
     deployment_map = {"arm64": "11.0", "x86_64": "10.15"}
     deployment = deployment_map.get(arch, "10.15")
-    
+
     build_dir = src_dir / f"build-macos-{arch}"
     build_dir.mkdir(exist_ok=True)
-    
+
     cross_file = src_dir / f"cross-macos-{arch}.meson"
     cpu_family = "aarch64" if arch == "arm64" else "x86_64"
     cross_content = f"""
@@ -627,22 +640,22 @@ objcpp_args = ['-arch', '{arch}', '-mmacosx-version-min={deployment}']
 link_args = ['-arch', '{arch}', '-mmacosx-version-min={deployment}']
 """
     cross_file.write_text(cross_content.strip())
-    
+
     meson_args = [
         "meson", "setup", str(build_dir),
         f"--cross-file={cross_file}",
         "-Dbuildtype=release",
         "-Dvulkan=disabled",
     ]
-    
+
     result = run_cmd(meson_args, cwd=src_dir)
     if result.returncode != 0:
         return False
-    
+
     result = run_cmd(["ninja", "-C", str(build_dir), f"-j{os.cpu_count()}"], cwd=src_dir)
     if result.returncode != 0:
         return False
-    
+
     libs, headers = find_vlc_artifacts(build_dir, "macos")
     organize_output(libs, headers, output_dir, "macos", arch)
     return True
@@ -651,9 +664,10 @@ link_args = ['-arch', '{arch}', '-mmacosx-version-min={deployment}']
 def build_linux(src_dir: Path, arch: str, output_dir: Path, compiler: str = "gcc") -> bool:
     build_dir = src_dir / f"build-linux-{arch}-{compiler}"
     build_dir.mkdir(exist_ok=True)
-    
+
     meson_args = ["meson", "setup", str(build_dir), "-Dbuildtype=release", "-Dvulkan=disabled"]
-    
+    env = os.environ.copy()
+
     if arch != "x86_64":
         cross_file = src_dir / f"cross-linux-{arch}-{compiler}.meson"
         if compiler == "clang":
@@ -747,24 +761,21 @@ link_args = ['-fPIC']
         cross_file.write_text(cross_content.strip())
         meson_args.extend([f"--cross-file={cross_file}"])
     else:
-        # Native build - set compiler via environment
         if compiler == "clang":
-            env = os.environ.copy()
             env["CC"] = "clang"
             env["CXX"] = "clang++"
         else:
-            env = os.environ.copy()
             env["CC"] = "gcc"
             env["CXX"] = "g++"
-    
-    result = run_cmd(meson_args, cwd=src_dir, env=env if arch == "x86_64" else None)
+
+    result = run_cmd(meson_args, cwd=src_dir, env=env)
     if result.returncode != 0:
         return False
-    
-    result = run_cmd(["ninja", "-C", str(build_dir), f"-j{os.cpu_count()}"], cwd=src_dir, env=env if arch == "x86_64" else None)
+
+    result = run_cmd(["ninja", "-C", str(build_dir), f"-j{os.cpu_count()}"], cwd=src_dir, env=env)
     if result.returncode != 0:
         return False
-    
+
     libs, headers = find_vlc_artifacts(build_dir, "linux")
     organize_output(libs, headers, output_dir, "linux", f"{arch}-{compiler}")
     return True
@@ -773,19 +784,17 @@ link_args = ['-fPIC']
 def build_windows(src_dir: Path, arch: str, output_dir: Path, compiler: str = "msvc") -> bool:
     build_dir = src_dir / f"build-windows-{arch}-{compiler}"
     build_dir.mkdir(exist_ok=True)
-    
+
     vs_arch_map = {"x86_64": "x64", "arm64": "arm64", "x86": "x86"}
     meson_arch_map = {"x86_64": "x86_64", "arm64": "arm64", "x86": "x86"}
-    
+
     vs_arch = vs_arch_map.get(arch)
     meson_arch = meson_arch_map.get(arch)
-    
     if not vs_arch or not meson_arch:
         Logger.error(f"Unsupported Windows arch: {arch}")
         return False
-    
+
     cross_file = src_dir / f"cross-windows-{arch}-{compiler}.meson"
-    
     if compiler == "clang-cl":
         cross_content = f"""
 [binaries]
@@ -806,7 +815,7 @@ c_args = ['/MD', '/D_CRT_SECURE_NO_WARNINGS']
 cpp_args = ['/MD', '/D_CRT_SECURE_NO_WARNINGS', '/EHsc']
 link_args = ['/MANIFEST:NO']
 """
-    else:  # msvc
+    else:
         cross_content = f"""
 [binaries]
 c = 'cl'
@@ -827,7 +836,7 @@ cpp_args = ['/MD', '/D_CRT_SECURE_NO_WARNINGS', '/EHsc']
 link_args = ['/MANIFEST:NO']
 """
     cross_file.write_text(cross_content.strip())
-    
+
     meson_args = [
         "meson", "setup", str(build_dir),
         f"--cross-file={cross_file}",
@@ -835,18 +844,27 @@ link_args = ['/MANIFEST:NO']
         "-Dvulkan=disabled",
         "-Dlua=disabled",
     ]
-    
-    # Setup MSVC environment
-    vcvars_path = r"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat"
+
+    vcvars_path = (
+        r"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat"
+    )
     if not os.path.exists(vcvars_path):
-        vcvars_path = r"C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat"
+        vcvars_path = (
+            r"C:\Program Files\Microsoft Visual Studio\2022\Community\VC"
+            r"\Auxiliary\Build\vcvarsall.bat"
+        )
     if not os.path.exists(vcvars_path):
-        vcvars_path = r"C:\Program Files (x86)\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat"
-    
+        vcvars_path = (
+            r"C:\Program Files (x86)\Microsoft Visual Studio\2022\Enterprise\VC"
+            r"\Auxiliary\Build\vcvarsall.bat"
+        )
+
+    env = os.environ.copy()
     if os.path.exists(vcvars_path):
-        env = os.environ.copy()
-        # Run vcvarsall to set up environment
-        result = run_cmd(["cmd", "/c", f"\"{vcvars_path}\" {vs_arch} && set"], cwd=src_dir, capture=True)
+        result = run_cmd(
+            ["cmd", "/c", f"\"{vcvars_path}\" {vs_arch} && set"],
+            cwd=src_dir, capture=True
+        )
         if result.returncode == 0:
             for line in result.stdout.splitlines():
                 if "=" in line:
@@ -854,16 +872,15 @@ link_args = ['/MANIFEST:NO']
                     env[key] = value
     else:
         Logger.warning("vcvarsall.bat not found, using default environment")
-        env = os.environ.copy()
-    
+
     result = run_cmd(meson_args, cwd=src_dir, env=env)
     if result.returncode != 0:
         return False
-    
+
     result = run_cmd(["ninja", "-C", str(build_dir), f"-j{os.cpu_count()}"], cwd=src_dir, env=env)
     if result.returncode != 0:
         return False
-    
+
     libs, headers = find_vlc_artifacts(build_dir, "windows")
     organize_output(libs, headers, output_dir, "windows", f"{arch}-{compiler}")
     return True
@@ -872,9 +889,10 @@ link_args = ['/MANIFEST:NO']
 def build_freebsd(src_dir: Path, arch: str, output_dir: Path) -> bool:
     build_dir = src_dir / f"build-freebsd-{arch}"
     build_dir.mkdir(exist_ok=True)
-    
+
     meson_args = ["meson", "setup", str(build_dir), "-Dbuildtype=release", "-Dvulkan=disabled"]
-    
+    env = os.environ.copy()
+
     if arch == "arm64":
         cross_file = src_dir / f"cross-freebsd-{arch}.meson"
         cross_content = """
@@ -899,19 +917,16 @@ link_args = ['-fPIC', '--target=aarch64-unknown-freebsd14']
         cross_file.write_text(cross_content.strip())
         meson_args.extend([f"--cross-file={cross_file}"])
     else:
-        # Native x86_64 build with clang
-        env = os.environ.copy()
         env["CC"] = "clang"
         env["CXX"] = "clang++"
-    
-    result = run_cmd(meson_args, cwd=src_dir, env=env if arch == "x86_64" else None)
+
+    result = run_cmd(meson_args, cwd=src_dir, env=env)
     if result.returncode != 0:
         return False
-    
-    result = run_cmd(["ninja", "-C", str(build_dir), f"-j{os.cpu_count()}"], cwd=src_dir, env=env if arch == "x86_64" else None)
+
+    result = run_cmd(["ninja", "-C", str(build_dir), f"-j{os.cpu_count()}"], cwd=src_dir, env=env)
     if result.returncode != 0:
         return False
-    
     libs, headers = find_vlc_artifacts(build_dir, "freebsd")
     organize_output(libs, headers, output_dir, "freebsd", arch)
     return True
@@ -920,13 +935,13 @@ link_args = ['-fPIC', '--target=aarch64-unknown-freebsd14']
 def create_package(dist_dir: Path, target_os: str, arch: str, mode: str) -> Path:
     package_name = get_artifact_name(target_os, arch, mode)
     package_path = dist_dir.parent / f"{package_name}.zip"
-    
+
     with zipfile.ZipFile(package_path, 'w', zipfile.ZIP_DEFLATED) as zf:
         for file in dist_dir.rglob("*"):
             if file.is_file():
                 arcname = file.relative_to(dist_dir.parent)
                 zf.write(file, arcname)
-    
+
     Logger.success(f"Created package: {package_path} ({package_path.stat().st_size:,} bytes)")
     return package_path
 
@@ -950,9 +965,9 @@ Examples:
   python generate_libvlc.py --mode build --target-os ios --arch arm64 --branch 3.0
         """
     )
-    
+
     host_os, host_arch = detect_host()
-    
+
     parser.add_argument("--target-os", choices=TARGET_OS_CHOICES, default=host_os,
                         help=f"Target OS (default: auto-detect = {host_os})")
     parser.add_argument("--arch", choices=ARCH_CHOICES, default=host_arch,
@@ -966,46 +981,52 @@ Examples:
     parser.add_argument("--branch", default="master",
                         help="Git branch/tag to build (default: master)")
     parser.add_argument("--compiler", choices=["gcc", "clang", "msvc", "clang-cl"], default="gcc",
-                        help="Compiler to use for build (default: gcc for Linux/FreeBSD, msvc for Windows)")
+                        help=(
+                            "Compiler to use for build "
+                            "(default: gcc for Linux/FreeBSD, msvc for Windows)"
+                        ))
     parser.add_argument("--package", action="store_true",
                         help="Create zip package of output")
     parser.add_argument("--verbose", "-v", action="store_true",
                         help="Enable verbose output")
-    
+
     args = parser.parse_args()
-    
+
     if not validate_os_arch(args.target_os, args.arch):
         Logger.error(f"Invalid combination: {args.target_os}-{args.arch}")
         Logger.error(f"Valid architectures for {args.target_os}: {OS_ARCH_MAP[args.target_os]}")
         return 1
-    
+
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    
+
     Logger.info(f"Target: {args.target_os}-{args.arch} | Mode: {args.mode}")
     if args.mode == "build":
         Logger.info(f"Compiler: {args.compiler}")
     Logger.info(f"Output: {args.output_dir.absolute()}")
-    
+
     success = False
     if args.mode == "fetch":
         success = fetch_prebuilt(args.target_os, args.arch, args.output_dir)
     else:
-        success = build_from_source(args.target_os, args.arch, args.output_dir, args.source_url, args.branch, args.compiler)
-    
+        success = build_from_source(
+            args.target_os, args.arch, args.output_dir,
+            args.source_url, args.branch, args.compiler
+        )
+
     if not success:
         Logger.error("Operation failed")
         return 1
-    
+
     # Determine output directory name based on compiler for multi-compiler builds
     if args.mode == "build" and args.target_os in ["linux", "windows"]:
         dist_dir = args.output_dir / f"{args.target_os}-{args.arch}-{args.compiler}"
     else:
         dist_dir = args.output_dir / f"{args.target_os}-{args.arch}"
     print_summary(dist_dir, args.target_os, args.arch)
-    
+
     if args.package:
         create_package(dist_dir, args.target_os, args.arch, args.mode)
-    
+
     Logger.success("Done!")
     return 0
 

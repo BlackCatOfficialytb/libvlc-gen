@@ -77,28 +77,28 @@ jobs:
         run: |
           cd vlc-source
           mkdir -p build-ios-${{ matrix.arch }}
-          cat > cross-ios-${{ matrix.arch }}.meson << EOF
-          [binaries]
-          c = 'xcrun -sdk ${{ matrix.sdk }} clang'
-          cpp = 'xcrun -sdk ${{ matrix.sdk }} clang++'
-          objc = 'xcrun -sdk ${{ matrix.sdk }} clang'
-          ar = 'xcrun -sdk ${{ matrix.sdk }} ar'
-          strip = 'xcrun -sdk ${{ matrix.sdk }} strip'
-          pkgconfig = 'pkg-config'
-          
-          [host_machine]
-          system = 'darwin'
-          cpu_family = '${{ matrix.arch == 'arm64' && 'aarch64' || 'arm' }}'
-          cpu = '${{ matrix.arch }}'
-          endian = 'little'
-          
-          [properties]
-          sys_root = '/Applications/Xcode.app/Contents/Developer/Platforms/${{ matrix.sdk }}.platform/Developer/SDKs/${{ matrix.sdk }}.sdk'
-          c_args = ['-arch', '${{ matrix.arch }}', '-isysroot', '/Applications/Xcode.app/Contents/Developer/Platforms/${{ matrix.sdk }}.platform/Developer/SDKs/${{ matrix.sdk }}.sdk', '-miphoneos-version-min=${{ matrix.deployment_target }}']
-          cpp_args = ['-arch', '${{ matrix.arch }}', '-isysroot', '/Applications/Xcode.app/Contents/Developer/Platforms/${{ matrix.sdk }}.platform/Developer/SDKs/${{ matrix.sdk }}.sdk', '-miphoneos-version-min=${{ matrix.deployment_target }}']
-          objc_args = ['-arch', '${{ matrix.arch }}', '-isysroot', '/Applications/Xcode.app/Contents/Developer/Platforms/${{ matrix.sdk }}.platform/Developer/SDKs/${{ matrix.sdk }}.sdk', '-miphoneos-version-min=${{ matrix.deployment_target }}']
-          link_args = ['-arch', '${{ matrix.arch }}', '-isysroot', '/Applications/Xcode.app/Contents/Developer/Platforms/${{ matrix.sdk }}.platform/Developer/SDKs/${{ matrix.sdk }}.sdk', '-miphoneos-version-min=${{ matrix.deployment_target }}']
-          EOF
+          printf '%s\n' \
+            "[binaries]" \
+            "c = 'xcrun -sdk ${{ matrix.sdk }} clang'" \
+            "cpp = 'xcrun -sdk ${{ matrix.sdk }} clang++'" \
+            "objc = 'xcrun -sdk ${{ matrix.sdk }} clang'" \
+            "ar = 'xcrun -sdk ${{ matrix.sdk }} ar'" \
+            "strip = 'xcrun -sdk ${{ matrix.sdk }} strip'" \
+            "pkgconfig = 'pkg-config'" \
+            "" \
+            "[host_machine]" \
+            "system = 'darwin'" \
+            "cpu_family = '${{ matrix.arch == 'arm64' && 'aarch64' || 'arm' }}'" \
+            "cpu = '${{ matrix.arch }}'" \
+            "endian = 'little'" \
+            "" \
+            "[properties]" \
+            "sys_root = '/Applications/Xcode.app/Contents/Developer/Platforms/${{ matrix.sdk }}.platform/Developer/SDKs/${{ matrix.sdk }}.sdk'" \
+            "c_args = ['-arch', '${{ matrix.arch }}', '-isysroot', '/Applications/Xcode.app/Contents/Developer/Platforms/${{ matrix.sdk }}.platform/Developer/SDKs/${{ matrix.sdk }}.sdk', '-miphoneos-version-min=${{ matrix.deployment_target }}']" \
+            "cpp_args = ['-arch', '${{ matrix.arch }}', '-isysroot', '/Applications/Xcode.app/Contents/Developer/Platforms/${{ matrix.sdk }}.platform/Developer/SDKs/${{ matrix.sdk }}.sdk', '-miphoneos-version-min=${{ matrix.deployment_target }}']" \
+            "objc_args = ['-arch', '${{ matrix.arch }}', '-isysroot', '/Applications/Xcode.app/Contents/Developer/Platforms/${{ matrix.sdk }}.platform/Developer/SDKs/${{ matrix.sdk }}.sdk', '-miphoneos-version-min=${{ matrix.deployment_target }}']" \
+            "link_args = ['-arch', '${{ matrix.arch }}', '-isysroot', '/Applications/Xcode.app/Contents/Developer/Platforms/${{ matrix.sdk }}.platform/Developer/SDKs/${{ matrix.sdk }}.sdk', '-miphoneos-version-min=${{ matrix.deployment_target }}']" \
+            > cross-ios-${{ matrix.arch }}.meson
           
           meson setup build-ios-${{ matrix.arch }} \
             --cross-file cross-ios-${{ matrix.arch }}.meson \
@@ -111,27 +111,27 @@ jobs:
         run: |
           cd vlc-source
           mkdir -p build-macos-${{ matrix.arch }}
-          cat > cross-macos-${{ matrix.arch }}.meson << EOF
-          [binaries]
-          c = 'clang'
-          cpp = 'clang++'
-          objc = 'clang'
-          ar = 'ar'
-          strip = 'strip'
-          pkgconfig = 'pkg-config'
-          
-          [host_machine]
-          system = 'darwin'
-          cpu_family = '${{ matrix.arch == 'arm64' && 'aarch64' || 'x86_64' }}'
-          cpu = '${{ matrix.arch }}'
-          endian = 'little'
-          
-          [properties]
-          c_args = ['-arch', '${{ matrix.arch }}', '-mmacosx-version-min=${{ matrix.deployment_target }}']
-          cpp_args = ['-arch', '${{ matrix.arch }}', '-mmacosx-version-min=${{ matrix.deployment_target }}']
-          objc_args = ['-arch', '${{ matrix.arch }}', '-mmacosx-version-min=${{ matrix.deployment_target }}']
-          link_args = ['-arch', '${{ matrix.arch }}', '-mmacosx-version-min=${{ matrix.deployment_target }}']
-          EOF
+          printf '%s\n' \
+            "[binaries]" \
+            "c = 'clang'" \
+            "cpp = 'clang++'" \
+            "objc = 'clang'" \
+            "ar = 'ar'" \
+            "strip = 'strip'" \
+            "pkgconfig = 'pkg-config'" \
+            "" \
+            "[host_machine]" \
+            "system = 'darwin'" \
+            "cpu_family = '${{ matrix.arch == 'arm64' && 'aarch64' || 'x86_64' }}'" \
+            "cpu = '${{ matrix.arch }}'" \
+            "endian = 'little'" \
+            "" \
+            "[properties]" \
+            "c_args = ['-arch', '${{ matrix.arch }}', '-mmacosx-version-min=${{ matrix.deployment_target }}']" \
+            "cpp_args = ['-arch', '${{ matrix.arch }}', '-mmacosx-version-min=${{ matrix.deployment_target }}']" \
+            "objc_args = ['-arch', '${{ matrix.arch }}', '-mmacosx-version-min=${{ matrix.deployment_target }}']" \
+            "link_args = ['-arch', '${{ matrix.arch }}', '-mmacosx-version-min=${{ matrix.deployment_target }}']" \
+            > cross-macos-${{ matrix.arch }}.meson
           
           meson setup build-macos-${{ matrix.arch }} \
             --cross-file cross-macos-${{ matrix.arch }}.meson \
@@ -239,25 +239,25 @@ jobs:
           cd vlc-source
           mkdir -p build-android-${{ matrix.arch }}
           
-          cat > cross-android-${{ matrix.arch }}.meson << EOF
-          [binaries]
-          c = '${{ matrix.ndk_arch }}-linux-android${{ matrix.api }}-clang'
-          cpp = '${{ matrix.ndk_arch }}-linux-android${{ matrix.api }}-clang++'
-          ar = '${{ matrix.ndk_arch }}-linux-android-ar'
-          strip = '${{ matrix.ndk_arch }}-linux-android-strip'
-          pkgconfig = 'pkg-config'
-          
-          [host_machine]
-          system = 'linux'
-          cpu_family = '${{ matrix.ndk_arch == 'aarch64' && 'aarch64' || matrix.ndk_arch == 'arm' && 'arm' || matrix.ndk_arch }}'
-          cpu = '${{ matrix.ndk_arch }}'
-          endian = 'little'
-          
-          [properties]
-          c_args = ['-fPIC']
-          cpp_args = ['-fPIC', '-frtti', '-fexceptions']
-          link_args = ['-fPIC']
-          EOF
+          printf '%s\n' \
+            "[binaries]" \
+            "c = '${{ matrix.ndk_arch }}-linux-android${{ matrix.api }}-clang'" \
+            "cpp = '${{ matrix.ndk_arch }}-linux-android${{ matrix.api }}-clang++'" \
+            "ar = '${{ matrix.ndk_arch }}-linux-android-ar'" \
+            "strip = '${{ matrix.ndk_arch }}-linux-android-strip'" \
+            "pkgconfig = 'pkg-config'" \
+            "" \
+            "[host_machine]" \
+            "system = 'linux'" \
+            "cpu_family = '${{ matrix.ndk_arch == 'aarch64' && 'aarch64' || matrix.ndk_arch == 'arm' && 'arm' || matrix.ndk_arch }}'" \
+            "cpu = '${{ matrix.ndk_arch }}'" \
+            "endian = 'little'" \
+            "" \
+            "[properties]" \
+            "c_args = ['-fPIC']" \
+            "cpp_args = ['-fPIC', '-frtti', '-fexceptions']" \
+            "link_args = ['-fPIC']" \
+            > cross-android-${{ matrix.arch }}.meson
           
           export ANDROID_NDK_HOME=$ANDROID_NDK_HOME
           export PATH=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH
@@ -369,70 +369,70 @@ jobs:
           if [ "${{ matrix.cross_compile }}" = "true" ]; then
             if [ "${{ matrix.compiler }}" = "clang" ]; then
               if [ "${{ matrix.arch }}" = "arm64" ]; then
-                cat > cross-linux-arm64-clang.meson << EOF
-                [binaries]
-                c = 'clang'
-                cpp = 'clang++'
-                ar = 'llvm-ar'
-                strip = 'llvm-strip'
-                pkgconfig = 'pkg-config'
-                
-                [host_machine]
-                system = 'linux'
-                cpu_family = 'aarch64'
-                cpu = 'arm64'
-                endian = 'little'
-                EOF
+                printf '%s\n' \
+                  "[binaries]" \
+                  "c = 'clang'" \
+                  "cpp = 'clang++'" \
+                  "ar = 'llvm-ar'" \
+                  "strip = 'llvm-strip'" \
+                  "pkgconfig = 'pkg-config'" \
+                  "" \
+                  "[host_machine]" \
+                  "system = 'linux'" \
+                  "cpu_family = 'aarch64'" \
+                  "cpu = 'arm64'" \
+                  "endian = 'little'" \
+                  > cross-linux-arm64-clang.meson
                 CROSS_FILE="cross-linux-arm64-clang.meson"
               else
-                cat > cross-linux-x86-clang.meson << EOF
-                [binaries]
-                c = 'clang'
-                cpp = 'clang++'
-                ar = 'llvm-ar'
-                strip = 'llvm-strip'
-                pkgconfig = 'pkg-config'
-                
-                [host_machine]
-                system = 'linux'
-                cpu_family = 'x86'
-                cpu = 'i686'
-                endian = 'little'
-                EOF
+                printf '%s\n' \
+                  "[binaries]" \
+                  "c = 'clang'" \
+                  "cpp = 'clang++'" \
+                  "ar = 'llvm-ar'" \
+                  "strip = 'llvm-strip'" \
+                  "pkgconfig = 'pkg-config'" \
+                  "" \
+                  "[host_machine]" \
+                  "system = 'linux'" \
+                  "cpu_family = 'x86'" \
+                  "cpu = 'i686'" \
+                  "endian = 'little'" \
+                  > cross-linux-x86-clang.meson
                 CROSS_FILE="cross-linux-x86-clang.meson"
               fi
             else
               if [ "${{ matrix.arch }}" = "arm64" ]; then
-                cat > cross-linux-arm64.meson << EOF
-                [binaries]
-                c = 'aarch64-linux-gnu-gcc'
-                cpp = 'aarch64-linux-gnu-g++'
-                ar = 'aarch64-linux-gnu-ar'
-                strip = 'aarch64-linux-gnu-strip'
-                pkgconfig = 'aarch64-linux-gnu-pkg-config'
-                
-                [host_machine]
-                system = 'linux'
-                cpu_family = 'aarch64'
-                cpu = 'arm64'
-                endian = 'little'
-                EOF
+                printf '%s\n' \
+                  "[binaries]" \
+                  "c = 'aarch64-linux-gnu-gcc'" \
+                  "cpp = 'aarch64-linux-gnu-g++'" \
+                  "ar = 'aarch64-linux-gnu-ar'" \
+                  "strip = 'aarch64-linux-gnu-strip'" \
+                  "pkgconfig = 'aarch64-linux-gnu-pkg-config'" \
+                  "" \
+                  "[host_machine]" \
+                  "system = 'linux'" \
+                  "cpu_family = 'aarch64'" \
+                  "cpu = 'arm64'" \
+                  "endian = 'little'" \
+                  > cross-linux-arm64.meson
                 CROSS_FILE="cross-linux-arm64.meson"
               else
-                cat > cross-linux-x86.meson << EOF
-                [binaries]
-                c = 'i686-linux-gnu-gcc'
-                cpp = 'i686-linux-gnu-g++'
-                ar = 'i686-linux-gnu-ar'
-                strip = 'i686-linux-gnu-strip'
-                pkgconfig = 'i686-linux-gnu-pkg-config'
-                
-                [host_machine]
-                system = 'linux'
-                cpu_family = 'x86'
-                cpu = 'i686'
-                endian = 'little'
-                EOF
+                printf '%s\n' \
+                  "[binaries]" \
+                  "c = 'i686-linux-gnu-gcc'" \
+                  "cpp = 'i686-linux-gnu-g++'" \
+                  "ar = 'i686-linux-gnu-ar'" \
+                  "strip = 'i686-linux-gnu-strip'" \
+                  "pkgconfig = 'i686-linux-gnu-pkg-config'" \
+                  "" \
+                  "[host_machine]" \
+                  "system = 'linux'" \
+                  "cpu_family = 'x86'" \
+                  "cpu = 'i686'" \
+                  "endian = 'little'" \
+                  > cross-linux-x86.meson
                 CROSS_FILE="cross-linux-x86.meson"
               fi
             fi
@@ -489,40 +489,6 @@ jobs:
           path: |
             dist/linux-${{ matrix.arch }}-${{ matrix.compiler }}/
             dist/libvlc-linux-${{ matrix.arch }}-${{ matrix.compiler }}-built.zip
-          retention-days: 30
-
-      - name: Collect artifacts
-        run: |
-          cd vlc-source
-          BUILD_DIR="build-linux-${{ matrix.arch }}"
-          mkdir -p ../../dist/linux-${{ matrix.arch }}/include/vlc
-          mkdir -p ../../dist/linux-${{ matrix.arch }}/lib
-          
-          find "$BUILD_DIR" -name "*.h" -path "*/include/*" -exec cp {} ../../dist/linux-${{ matrix.arch }}/include/vlc/ \;
-          find "$BUILD_DIR/../include" -name "*.h" -exec cp {} ../../dist/linux-${{ matrix.arch }}/include/vlc/ \; 2>/dev/null || true
-          find "$BUILD_DIR" \( -name "*.so*" -o -name "*.a" \) -exec cp {} ../../dist/linux-${{ matrix.arch }}/lib/ \;
-
-      - name: Verify artifacts
-        run: |
-          DIST_DIR="../dist/linux-${{ matrix.arch }}"
-          echo "=== Library files ==="
-          ls -lh "$DIST_DIR/lib/"
-          echo ""
-          echo "=== Header files ==="
-          ls -lh "$DIST_DIR/include/vlc/" | head -30
-
-      - name: Create package
-        run: |
-          cd dist
-          zip -r "libvlc-linux-${{ matrix.arch }}-built.zip" "linux-${{ matrix.arch }}/"
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: libvlc-linux-${{ matrix.arch }}-built
-          path: |
-            dist/linux-${{ matrix.arch }}/
-            dist/libvlc-linux-${{ matrix.arch }}-built.zip
           retention-days: 30
 
   build-windows:
@@ -733,37 +699,37 @@ jobs:
             mkdir -p build-freebsd-${{ matrix.arch }}
             
             if [ "${{ matrix.arch }}" = "arm64" ]; then
-              cat > cross-freebsd-arm64.meson << EOF
-              [binaries]
-              c = 'aarch64-unknown-freebsd14-gcc'
-              cpp = 'aarch64-unknown-freebsd14-g++'
-              ar = 'aarch64-unknown-freebsd14-ar'
-              strip = 'aarch64-unknown-freebsd14-strip'
-              pkgconfig = 'pkgconf'
-              
-              [host_machine]
-              system = 'freebsd'
-              cpu_family = 'aarch64'
-              cpu = 'arm64'
-              endian = 'little'
-              EOF
+              printf '%s\n' \
+                "[binaries]" \
+                "c = 'aarch64-unknown-freebsd14-gcc'" \
+                "cpp = 'aarch64-unknown-freebsd14-g++'" \
+                "ar = 'aarch64-unknown-freebsd14-ar'" \
+                "strip = 'aarch64-unknown-freebsd14-strip'" \
+                "pkgconfig = 'pkgconf'" \
+                "" \
+                "[host_machine]" \
+                "system = 'freebsd'" \
+                "cpu_family = 'aarch64'" \
+                "cpu = 'arm64'" \
+                "endian = 'little'" \
+                > cross-freebsd-arm64.meson
               MESON_ARGS="--cross-file cross-freebsd-arm64.meson"
             else
-              cat > cross-freebsd-x86_64.meson << EOF
-              [binaries]
-              c = 'clang17'
-              cpp = 'clang++17'
-              objc = 'clang17'
-              ar = 'llvm-ar17'
-              strip = 'llvm-strip17'
-              pkgconfig = 'pkgconf'
-              
-              [host_machine]
-              system = 'freebsd'
-              cpu_family = 'x86_64'
-              cpu = 'x86_64'
-              endian = 'little'
-              EOF
+              printf '%s\n' \
+                "[binaries]" \
+                "c = 'clang17'" \
+                "cpp = 'clang++17'" \
+                "objc = 'clang17'" \
+                "ar = 'llvm-ar17'" \
+                "strip = 'llvm-strip17'" \
+                "pkgconfig = 'pkgconf'" \
+                "" \
+                "[host_machine]" \
+                "system = 'freebsd'" \
+                "cpu_family = 'x86_64'" \
+                "cpu = 'x86_64'" \
+                "endian = 'little'" \
+                > cross-freebsd-x86_64.meson
               MESON_ARGS="--cross-file cross-freebsd-x86_64.meson"
             fi
             

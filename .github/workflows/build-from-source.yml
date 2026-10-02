@@ -40,10 +40,6 @@ jobs:
             arch: arm64
             sdk: iphoneos
             deployment_target: "13.0"
-          - target_os: ios
-            arch: armv7
-            sdk: iphoneos
-            deployment_target: "13.0"
           - target_os: macos
             arch: arm64
             sdk: macosx
@@ -88,7 +84,7 @@ jobs:
             "" \
             "[host_machine]" \
             "system = 'darwin'" \
-            "cpu_family = '${{ matrix.arch == 'arm64' && 'aarch64' || 'arm' }}'" \
+            "cpu_family = 'aarch64'" \
             "cpu = '${{ matrix.arch }}'" \
             "endian = 'little'" \
             "" \
@@ -122,7 +118,7 @@ jobs:
             "" \
             "[host_machine]" \
             "system = 'darwin'" \
-            "cpu_family = '${{ matrix.arch == 'arm64' && 'aarch64' || 'x86_64' }}'" \
+            "cpu_family = '${{ matrix.arch == 'arm64' && 'aarch64' || 'x86' }}'" \
             "cpu = '${{ matrix.arch }}'" \
             "endian = 'little'" \
             "" \
@@ -196,18 +192,10 @@ jobs:
             abi: arm64-v8a
             api: 21
             ndk_arch: aarch64
-          - arch: armv7
-            abi: armeabi-v7a
-            api: 21
-            ndk_arch: arm
           - arch: x86_64
             abi: x86_64
             api: 21
             ndk_arch: x86_64
-          - arch: x86
-            abi: x86
-            api: 21
-            ndk_arch: i686
     timeout-minutes: 180
     steps:
       - name: Checkout repository
@@ -249,7 +237,7 @@ jobs:
             "" \
             "[host_machine]" \
             "system = 'linux'" \
-            "cpu_family = '${{ matrix.ndk_arch == 'aarch64' && 'aarch64' || matrix.ndk_arch == 'arm' && 'arm' || matrix.ndk_arch }}'" \
+            "cpu_family = '${{ matrix.ndk_arch == 'aarch64' && 'aarch64' || 'x86' }}'" \
             "cpu = '${{ matrix.ndk_arch }}'" \
             "endian = 'little'" \
             "" \
@@ -326,15 +314,9 @@ jobs:
           - arch: arm64
             cross_compile: true
             compiler: gcc
-          - arch: arm64
-            cross_compile: true
-            compiler: clang
           - arch: x86
             cross_compile: true
             compiler: gcc
-          - arch: x86
-            cross_compile: true
-            compiler: clang
     timeout-minutes: 120
     steps:
       - name: Checkout repository
@@ -367,74 +349,38 @@ jobs:
           mkdir -p build-linux-${{ matrix.arch }}-${{ matrix.compiler }}
           
           if [ "${{ matrix.cross_compile }}" = "true" ]; then
-            if [ "${{ matrix.compiler }}" = "clang" ]; then
-              if [ "${{ matrix.arch }}" = "arm64" ]; then
-                printf '%s\n' \
-                  "[binaries]" \
-                  "c = 'clang'" \
-                  "cpp = 'clang++'" \
-                  "ar = 'llvm-ar'" \
-                  "strip = 'llvm-strip'" \
-                  "pkgconfig = 'pkg-config'" \
-                  "" \
-                  "[host_machine]" \
-                  "system = 'linux'" \
-                  "cpu_family = 'aarch64'" \
-                  "cpu = 'arm64'" \
-                  "endian = 'little'" \
-                  > cross-linux-arm64-clang.meson
-                CROSS_FILE="cross-linux-arm64-clang.meson"
-              else
-                printf '%s\n' \
-                  "[binaries]" \
-                  "c = 'clang'" \
-                  "cpp = 'clang++'" \
-                  "ar = 'llvm-ar'" \
-                  "strip = 'llvm-strip'" \
-                  "pkgconfig = 'pkg-config'" \
-                  "" \
-                  "[host_machine]" \
-                  "system = 'linux'" \
-                  "cpu_family = 'x86'" \
-                  "cpu = 'i686'" \
-                  "endian = 'little'" \
-                  > cross-linux-x86-clang.meson
-                CROSS_FILE="cross-linux-x86-clang.meson"
-              fi
+            if [ "${{ matrix.arch }}" = "arm64" ]; then
+              printf '%s\n' \
+                "[binaries]" \
+                "c = 'aarch64-linux-gnu-gcc'" \
+                "cpp = 'aarch64-linux-gnu-g++'" \
+                "ar = 'aarch64-linux-gnu-ar'" \
+                "strip = 'aarch64-linux-gnu-strip'" \
+                "pkgconfig = 'aarch64-linux-gnu-pkg-config'" \
+                "" \
+                "[host_machine]" \
+                "system = 'linux'" \
+                "cpu_family = 'aarch64'" \
+                "cpu = 'arm64'" \
+                "endian = 'little'" \
+                > cross-linux-arm64.meson
+              CROSS_FILE="cross-linux-arm64.meson"
             else
-              if [ "${{ matrix.arch }}" = "arm64" ]; then
-                printf '%s\n' \
-                  "[binaries]" \
-                  "c = 'aarch64-linux-gnu-gcc'" \
-                  "cpp = 'aarch64-linux-gnu-g++'" \
-                  "ar = 'aarch64-linux-gnu-ar'" \
-                  "strip = 'aarch64-linux-gnu-strip'" \
-                  "pkgconfig = 'aarch64-linux-gnu-pkg-config'" \
-                  "" \
-                  "[host_machine]" \
-                  "system = 'linux'" \
-                  "cpu_family = 'aarch64'" \
-                  "cpu = 'arm64'" \
-                  "endian = 'little'" \
-                  > cross-linux-arm64.meson
-                CROSS_FILE="cross-linux-arm64.meson"
-              else
-                printf '%s\n' \
-                  "[binaries]" \
-                  "c = 'i686-linux-gnu-gcc'" \
-                  "cpp = 'i686-linux-gnu-g++'" \
-                  "ar = 'i686-linux-gnu-ar'" \
-                  "strip = 'i686-linux-gnu-strip'" \
-                  "pkgconfig = 'i686-linux-gnu-pkg-config'" \
-                  "" \
-                  "[host_machine]" \
-                  "system = 'linux'" \
-                  "cpu_family = 'x86'" \
-                  "cpu = 'i686'" \
-                  "endian = 'little'" \
-                  > cross-linux-x86.meson
-                CROSS_FILE="cross-linux-x86.meson"
-              fi
+              printf '%s\n' \
+                "[binaries]" \
+                "c = 'i686-linux-gnu-gcc'" \
+                "cpp = 'i686-linux-gnu-g++'" \
+                "ar = 'i686-linux-gnu-ar'" \
+                "strip = 'i686-linux-gnu-strip'" \
+                "pkgconfig = 'i686-linux-gnu-pkg-config'" \
+                "" \
+                "[host_machine]" \
+                "system = 'linux'" \
+                "cpu_family = 'x86'" \
+                "cpu = 'i686'" \
+                "endian = 'little'" \
+                > cross-linux-x86.meson
+              CROSS_FILE="cross-linux-x86.meson"
             fi
             MESON_ARGS="--cross-file $CROSS_FILE"
           else
@@ -501,26 +447,32 @@ jobs:
           - arch: x86_64
             vs_arch: x64
             meson_arch: x86_64
+            cpu_family: x86
             compiler: msvc
           - arch: x86_64
             vs_arch: x64
             meson_arch: x86_64
+            cpu_family: x86
             compiler: clang-cl
           - arch: arm64
             vs_arch: arm64
-            meson_arch: arm64
+            meson_arch: aarch64
+            cpu_family: aarch64
             compiler: msvc
           - arch: arm64
             vs_arch: arm64
-            meson_arch: arm64
+            meson_arch: aarch64
+            cpu_family: aarch64
             compiler: clang-cl
           - arch: x86
             vs_arch: x86
             meson_arch: x86
+            cpu_family: x86
             compiler: msvc
           - arch: x86
             vs_arch: x86
             meson_arch: x86
+            cpu_family: x86
             compiler: clang-cl
     timeout-minutes: 120
     steps:
@@ -564,7 +516,7 @@ jobs:
             
             [host_machine]
             system = 'windows'
-            cpu_family = '${{ matrix.meson_arch }}'
+            cpu_family = '${{ matrix.cpu_family }}'
             cpu = '${{ matrix.meson_arch }}'
             endian = 'little'
             
@@ -593,7 +545,7 @@ jobs:
             
             [host_machine]
             system = 'windows'
-            cpu_family = '${{ matrix.meson_arch }}'
+            cpu_family = '${{ matrix.cpu_family }}'
             cpu = '${{ matrix.meson_arch }}'
             endian = 'little'
             
@@ -726,7 +678,7 @@ jobs:
                 "" \
                 "[host_machine]" \
                 "system = 'freebsd'" \
-                "cpu_family = 'x86_64'" \
+                "cpu_family = 'x86'" \
                 "cpu = 'x86_64'" \
                 "endian = 'little'" \
                 > cross-freebsd-x86_64.meson
@@ -832,10 +784,10 @@ jobs:
             **Commit:** ${{ github.sha }}
             
             ### Included Platforms
-            - iOS (arm64, armv7)
-            - Android (arm64, armv7, x86_64, x86)
+            - iOS (arm64)
+            - Android (arm64, x86_64)
             - macOS (arm64, x86_64)
-            - Linux (x86_64, arm64, x86) — GCC & Clang
+            - Linux (x86_64, arm64, x86) — GCC
             - Windows (x86_64, arm64, x86) — MSVC & Clang-CL
             - FreeBSD (x86_64, arm64)
             

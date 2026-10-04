@@ -27,6 +27,7 @@ on:
 env:
   VLC_REPO_URL: https://code.videolan.org/videolan/vlc.git
   PYTHON_VERSION: '3.11'
+  DIST_ROOT: ${{ github.workspace }}/dist
 
 jobs:
   build-ios-macos:
@@ -51,7 +52,18 @@ jobs:
     timeout-minutes: 120
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4.2.0
+        with:
+          clean: false
+          persist-credentials: false
+
+      - name: Debug paths
+        run: |
+          echo "GITHUB_WORKSPACE=$GITHUB_WORKSPACE"
+          echo "RUNNER_TEMP=$RUNNER_TEMP"
+          echo "RUNNER_WORKSPACE=$RUNNER_WORKSPACE"
+          ls -la "$RUNNER_WORKSPACE" 2>/dev/null || true
+          ls -la "$RUNNER_TEMP" 2>/dev/null || true
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -62,16 +74,18 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          brew install meson ninja pkg-config
+          brew install meson ninja pkg-config ffmpeg pulseaudio jack srt librist libmtp
 
       - name: Clone VLC source
         run: |
-          git clone --depth 1 --branch ${{ github.event.inputs.vlc_branch }} ${{ env.VLC_REPO_URL }} vlc-source
+          VLC_SOURCE_DIR="/tmp/vlc-source-${{ github.run_id }}-${{ github.job }}"
+          git clone --depth 1 --branch "${{ github.event.inputs.vlc_branch }}" "${{ env.VLC_REPO_URL }}" "$VLC_SOURCE_DIR"
+          echo "VLC_SOURCE_DIR=$VLC_SOURCE_DIR" >> $GITHUB_ENV
 
       - name: Configure iOS build
         if: matrix.target_os == 'ios'
         run: |
-          cd vlc-source
+          cd "$VLC_SOURCE_DIR"
           mkdir -p build-ios-${{ matrix.arch }}
           printf '%s\n' \
             "[binaries]" \
@@ -105,7 +119,7 @@ jobs:
       - name: Configure macOS build
         if: matrix.target_os == 'macos'
         run: |
-          cd vlc-source
+          cd "$VLC_SOURCE_DIR"
           mkdir -p build-macos-${{ matrix.arch }}
           printf '%s\n' \
             "[binaries]" \
@@ -136,28 +150,29 @@ jobs:
 
       - name: Build
         run: |
-          cd vlc-source
+          cd "$VLC_SOURCE_DIR"
           BUILD_DIR="build-${{ matrix.target_os }}-${{ matrix.arch }}"
           ninja -C "$BUILD_DIR" -j$(sysctl -n hw.ncpu)
 
       - name: Collect artifacts
         run: |
-          cd vlc-source
+          cd "$VLC_SOURCE_DIR"
           BUILD_DIR="build-${{ matrix.target_os }}-${{ matrix.arch }}"
-          mkdir -p ../../dist/${{ matrix.target_os }}-${{ matrix.arch }}/include/vlc
-          mkdir -p ../../dist/${{ matrix.target_os }}-${{ matrix.arch }}/lib
+          DIST_DIR="${{ env.DIST_ROOT }}/${{ matrix.target_os }}-${{ matrix.arch }}"
+          mkdir -p "$DIST_DIR/include/vlc"
+          mkdir -p "$DIST_DIR/lib"
           
           # Copy headers
-          find "$BUILD_DIR" -name "*.h" -path "*/include/*" -exec cp {} ../../dist/${{ matrix.target_os }}-${{ matrix.arch }}/include/vlc/ \;
-          find "$BUILD_DIR/../include" -name "*.h" -exec cp {} ../../dist/${{ matrix.target_os }}-${{ matrix.arch }}/include/vlc/ \; 2>/dev/null || true
-          find "$BUILD_DIR/../src" -name "vlc*.h" -exec cp {} ../../dist/${{ matrix.target_os }}-${{ matrix.arch }}/include/vlc/ \; 2>/dev/null || true
+          find "$BUILD_DIR" -name "*.h" -path "*/include/*" -exec cp {} "$DIST_DIR/include/vlc/" \;
+          find "$BUILD_DIR/../include" -name "*.h" -exec cp {} "$DIST_DIR/include/vlc/" \; 2>/dev/null || true
+          find "$BUILD_DIR/../src" -name "vlc*.h" -exec cp {} "$DIST_DIR/include/vlc/" \; 2>/dev/null || true
           
           # Copy libraries
-          find "$BUILD_DIR" \( -name "*.a" -o -name "*.dylib" \) -exec cp {} ../../dist/${{ matrix.target_os }}-${{ matrix.arch }}/lib/ \;
+          find "$BUILD_DIR" \( -name "*.a" -o -name "*.dylib" \) -exec cp {} "$DIST_DIR/lib/" \;
 
       - name: Verify artifacts
         run: |
-          DIST_DIR="../dist/${{ matrix.target_os }}-${{ matrix.arch }}"
+          DIST_DIR="${{ env.DIST_ROOT }}/${{ matrix.target_os }}-${{ matrix.arch }}"
           echo "=== Contents of $DIST_DIR ==="
           find "$DIST_DIR" -type f | sort
           echo ""
@@ -169,7 +184,7 @@ jobs:
 
       - name: Create package
         run: |
-          cd dist
+          cd "${{ env.DIST_ROOT }}"
           zip -r "libvlc-${{ matrix.target_os }}-${{ matrix.arch }}-built.zip" "${{ matrix.target_os }}-${{ matrix.arch }}/"
 
       - name: Upload artifact
@@ -183,7 +198,7 @@ jobs:
 
   build-android:
     name: Build Android-${{ matrix.arch }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     strategy:
       fail-fast: false
       matrix:
@@ -199,7 +214,18 @@ jobs:
     timeout-minutes: 180
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4.2.0
+        with:
+          clean: false
+          persist-credentials: false
+
+      - name: Debug paths
+        run: |
+          echo "GITHUB_WORKSPACE=$GITHUB_WORKSPACE"
+          echo "RUNNER_TEMP=$RUNNER_TEMP"
+          echo "RUNNER_WORKSPACE=$RUNNER_WORKSPACE"
+          ls -la "$RUNNER_WORKSPACE" 2>/dev/null || true
+          ls -la "$RUNNER_TEMP" 2>/dev/null || true
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -211,7 +237,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install meson>=1.10.0
-          sudo apt-get update && sudo apt-get install -y ninja-build pkg-config unzip
+          sudo apt-get update && sudo apt-get install -y \
+            ninja-build pkg-config unzip \
+            libavformat-dev libavcodec-dev libavutil-dev libswscale-dev libswresample-dev \
+            libpipewire-0.3-dev libpulse-dev libasound2-dev libjack-jackd2-dev \
+            libsrt-openssl-dev librist-dev libmtp-dev
 
       - name: Setup Android NDK
         uses: android-actions/setup-android@v3
@@ -220,11 +250,13 @@ jobs:
 
       - name: Clone VLC source
         run: |
-          git clone --depth 1 --branch ${{ github.event.inputs.vlc_branch }} ${{ env.VLC_REPO_URL }} vlc-source
+          VLC_SOURCE_DIR="/tmp/vlc-source-${{ github.run_id }}-${{ github.job }}"
+          git clone --depth 1 --branch "${{ github.event.inputs.vlc_branch }}" "${{ env.VLC_REPO_URL }}" "$VLC_SOURCE_DIR"
+          echo "VLC_SOURCE_DIR=$VLC_SOURCE_DIR" >> $GITHUB_ENV
 
       - name: Configure Android build
         run: |
-          cd vlc-source
+          cd "$VLC_SOURCE_DIR"
           mkdir -p build-android-${{ matrix.arch }}
           
           printf '%s\n' \
@@ -259,25 +291,26 @@ jobs:
 
       - name: Build Android
         run: |
-          cd vlc-source
+          cd "$VLC_SOURCE_DIR"
           export ANDROID_NDK_HOME=$ANDROID_NDK_HOME
           export PATH=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH
           ninja -C build-android-${{ matrix.arch }} -j$(nproc)
 
       - name: Collect artifacts
         run: |
-          cd vlc-source
+          cd "$VLC_SOURCE_DIR"
           BUILD_DIR="build-android-${{ matrix.arch }}"
-          mkdir -p ../../dist/android-${{ matrix.arch }}/include/vlc
-          mkdir -p ../../dist/android-${{ matrix.arch }}/lib
+          DIST_DIR="${{ env.DIST_ROOT }}/android-${{ matrix.arch }}"
+          mkdir -p "$DIST_DIR/include/vlc"
+          mkdir -p "$DIST_DIR/lib"
           
-          find "$BUILD_DIR" -name "*.h" -path "*/include/*" -exec cp {} ../../dist/android-${{ matrix.arch }}/include/vlc/ \;
-          find "$BUILD_DIR/../include" -name "*.h" -exec cp {} ../../dist/android-${{ matrix.arch }}/include/vlc/ \; 2>/dev/null || true
-          find "$BUILD_DIR" \( -name "*.so" -o -name "*.a" \) -exec cp {} ../../dist/android-${{ matrix.arch }}/lib/ \;
+          find "$BUILD_DIR" -name "*.h" -path "*/include/*" -exec cp {} "$DIST_DIR/include/vlc/" \;
+          find "$BUILD_DIR/../include" -name "*.h" -exec cp {} "$DIST_DIR/include/vlc/" \; 2>/dev/null || true
+          find "$BUILD_DIR" \( -name "*.so" -o -name "*.a" \) -exec cp {} "$DIST_DIR/lib/" \;
 
       - name: Verify artifacts
         run: |
-          DIST_DIR="../dist/android-${{ matrix.arch }}"
+          DIST_DIR="${{ env.DIST_ROOT }}/android-${{ matrix.arch }}"
           echo "=== Library files ==="
           ls -lh "$DIST_DIR/lib/"
           echo ""
@@ -286,7 +319,7 @@ jobs:
 
       - name: Create package
         run: |
-          cd dist
+          cd "${{ env.DIST_ROOT }}"
           zip -r "libvlc-android-${{ matrix.arch }}-built.zip" "android-${{ matrix.arch }}/"
 
       - name: Upload artifact
@@ -300,7 +333,7 @@ jobs:
 
   build-linux:
     name: Build Linux-${{ matrix.arch }}-${{ matrix.compiler }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     strategy:
       fail-fast: false
       matrix:
@@ -320,7 +353,18 @@ jobs:
     timeout-minutes: 120
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4.2.0
+        with:
+          clean: false
+          persist-credentials: false
+
+      - name: Debug paths
+        run: |
+          echo "GITHUB_WORKSPACE=$GITHUB_WORKSPACE"
+          echo "RUNNER_TEMP=$RUNNER_TEMP"
+          echo "RUNNER_WORKSPACE=$RUNNER_WORKSPACE"
+          ls -la "$RUNNER_WORKSPACE" 2>/dev/null || true
+          ls -la "$RUNNER_TEMP" 2>/dev/null || true
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -337,15 +381,20 @@ jobs:
             gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
             gcc-i686-linux-gnu g++-i686-linux-gnu \
             libc6-dev-arm64-cross libc6-dev-i386-cross \
-            clang llvm
+            clang llvm \
+            libavformat-dev libavcodec-dev libavutil-dev libswscale-dev libswresample-dev \
+            libpipewire-0.3-dev libpulse-dev libasound2-dev libjack-jackd2-dev \
+            libsrt-openssl-dev librist-dev libmtp-dev
 
       - name: Clone VLC source
         run: |
-          git clone --depth 1 --branch ${{ github.event.inputs.vlc_branch }} ${{ env.VLC_REPO_URL }} vlc-source
+          VLC_SOURCE_DIR="/tmp/vlc-source-${{ github.run_id }}-${{ github.job }}"
+          git clone --depth 1 --branch "${{ github.event.inputs.vlc_branch }}" "${{ env.VLC_REPO_URL }}" "$VLC_SOURCE_DIR"
+          echo "VLC_SOURCE_DIR=$VLC_SOURCE_DIR" >> $GITHUB_ENV
 
       - name: Configure Linux build
         run: |
-          cd vlc-source
+          cd "$VLC_SOURCE_DIR"
           mkdir -p build-linux-${{ matrix.arch }}-${{ matrix.compiler }}
           
           if [ "${{ matrix.cross_compile }}" = "true" ]; then
@@ -400,23 +449,24 @@ jobs:
 
       - name: Build Linux
         run: |
-          cd vlc-source
+          cd "$VLC_SOURCE_DIR"
           ninja -C build-linux-${{ matrix.arch }}-${{ matrix.compiler }} -j$(nproc)
 
       - name: Collect artifacts
         run: |
-          cd vlc-source
+          cd "$VLC_SOURCE_DIR"
           BUILD_DIR="build-linux-${{ matrix.arch }}-${{ matrix.compiler }}"
-          mkdir -p ../../dist/linux-${{ matrix.arch }}-${{ matrix.compiler }}/include/vlc
-          mkdir -p ../../dist/linux-${{ matrix.arch }}-${{ matrix.compiler }}/lib
+          DIST_DIR="${{ env.DIST_ROOT }}/linux-${{ matrix.arch }}-${{ matrix.compiler }}"
+          mkdir -p "$DIST_DIR/include/vlc"
+          mkdir -p "$DIST_DIR/lib"
           
-          find "$BUILD_DIR" -name "*.h" -path "*/include/*" -exec cp {} ../../dist/linux-${{ matrix.arch }}-${{ matrix.compiler }}/include/vlc/ \;
-          find "$BUILD_DIR/../include" -name "*.h" -exec cp {} ../../dist/linux-${{ matrix.arch }}-${{ matrix.compiler }}/include/vlc/ \; 2>/dev/null || true
-          find "$BUILD_DIR" \( -name "*.so*" -o -name "*.a" \) -exec cp {} ../../dist/linux-${{ matrix.arch }}-${{ matrix.compiler }}/lib/ \;
+          find "$BUILD_DIR" -name "*.h" -path "*/include/*" -exec cp {} "$DIST_DIR/include/vlc/" \;
+          find "$BUILD_DIR/../include" -name "*.h" -exec cp {} "$DIST_DIR/include/vlc/" \; 2>/dev/null || true
+          find "$BUILD_DIR" \( -name "*.so*" -o -name "*.a" \) -exec cp {} "$DIST_DIR/lib/" \;
 
       - name: Verify artifacts
         run: |
-          DIST_DIR="../dist/linux-${{ matrix.arch }}-${{ matrix.compiler }}"
+          DIST_DIR="${{ env.DIST_ROOT }}/linux-${{ matrix.arch }}-${{ matrix.compiler }}"
           echo "=== Library files ==="
           ls -lh "$DIST_DIR/lib/"
           echo ""
@@ -425,7 +475,7 @@ jobs:
 
       - name: Create package
         run: |
-          cd dist
+          cd "${{ env.DIST_ROOT }}"
           zip -r "libvlc-linux-${{ matrix.arch }}-${{ matrix.compiler }}-built.zip" "linux-${{ matrix.arch }}-${{ matrix.compiler }}/"
 
       - name: Upload artifact
@@ -477,7 +527,10 @@ jobs:
     timeout-minutes: 120
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4.2.0
+        with:
+          clean: false
+          persist-credentials: false
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -488,17 +541,20 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          choco install meson ninja pkg-config -y
+          choco install meson ninja pkg-config ffmpeg -y
           refreshenv
 
       - name: Clone VLC source
+        shell: pwsh
         run: |
-          git clone --depth 1 --branch ${{ github.event.inputs.vlc_branch }} ${{ env.VLC_REPO_URL }} vlc-source
+          $VLC_SOURCE_DIR = "C:\vlc-source-${{ github.run_id }}-${{ github.job }}"
+          git clone --depth 1 --branch "${{ github.event.inputs.vlc_branch }}" "${{ env.VLC_REPO_URL }}" $VLC_SOURCE_DIR
+          echo "VLC_SOURCE_DIR=$VLC_SOURCE_DIR" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Configure Windows build
         shell: pwsh
         run: |
-          cd vlc-source
+          Set-Location $env:VLC_SOURCE_DIR
           mkdir build-windows-${{ matrix.arch }}-${{ matrix.compiler }}
           
           if ("${{ matrix.compiler }}" -eq "clang-cl") {
@@ -506,25 +562,10 @@ jobs:
             choco install llvm -y
             refreshenv
             
-            @"
-            [binaries]
-            c = 'clang-cl'
-            cpp = 'clang-cl'
-            ar = 'llvm-lib'
-            link = 'lld-link'
-            pkgconfig = 'pkg-config'
-            
-            [host_machine]
-            system = 'windows'
-            cpu_family = '${{ matrix.cpu_family }}'
-            cpu = '${{ matrix.meson_arch }}'
-            endian = 'little'
-            
-            [properties]
-            c_args = ['/MD', '/D_CRT_SECURE_NO_WARNINGS']
-            cpp_args = ['/MD', '/D_CRT_SECURE_NO_WARNINGS', '/EHsc']
-            link_args = ['/MANIFEST:NO']
-            "@ | Set-Content -Path "cross-windows-${{ matrix.arch }}-clang-cl.meson"
+            $cpuFamily = "${{ matrix.cpu_family }}"
+            $cpu = "${{ matrix.meson_arch }}"
+            $crossFile = "[binaries]`nc = 'clang-cl'`ncpp = 'clang-cl'`nar = 'llvm-lib'`nlink = 'lld-link'`npkgconfig = 'pkg-config'`n`n[host_machine]`nsystem = 'windows'`ncpu_family = '$cpuFamily'`ncpu = '$cpu'`nendian = 'little'`n`n[properties]`nc_args = ['/MD', '/D_CRT_SECURE_NO_WARNINGS']`ncpp_args = ['/MD', '/D_CRT_SECURE_NO_WARNINGS', '/EHsc']`nlink_args = ['/MANIFEST:NO']"
+            $crossFile | Set-Content -Path "cross-windows-${{ matrix.arch }}-clang-cl.meson"
             
             # Setup MSVC environment for headers/libs
             & "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" ${{ matrix.vs_arch }}
@@ -535,25 +576,10 @@ jobs:
               -Dvulkan=disabled `
               -Dlua=disabled
           } else {
-            @"
-            [binaries]
-            c = 'cl'
-            cpp = 'cl'
-            ar = 'lib'
-            link = 'link'
-            pkgconfig = 'pkg-config'
-            
-            [host_machine]
-            system = 'windows'
-            cpu_family = '${{ matrix.cpu_family }}'
-            cpu = '${{ matrix.meson_arch }}'
-            endian = 'little'
-            
-            [properties]
-            c_args = ['/MD', '/D_CRT_SECURE_NO_WARNINGS']
-            cpp_args = ['/MD', '/D_CRT_SECURE_NO_WARNINGS', '/EHsc']
-            link_args = ['/MANIFEST:NO']
-            "@ | Set-Content -Path "cross-windows-${{ matrix.arch }}.meson"
+            $cpuFamily = "${{ matrix.cpu_family }}"
+            $cpu = "${{ matrix.meson_arch }}"
+            $crossFile = "[binaries]`nc = 'cl'`ncpp = 'cl'`nar = 'lib'`nlink = 'link'`npkgconfig = 'pkg-config'`n`n[host_machine]`nsystem = 'windows'`ncpu_family = '$cpuFamily'`ncpu = '$cpu'`nendian = 'little'`n`n[properties]`nc_args = ['/MD', '/D_CRT_SECURE_NO_WARNINGS']`ncpp_args = ['/MD', '/D_CRT_SECURE_NO_WARNINGS', '/EHsc']`nlink_args = ['/MANIFEST:NO']"
+            $crossFile | Set-Content -Path "cross-windows-${{ matrix.arch }}.meson"
             
             # Setup MSVC environment
             & "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" ${{ matrix.vs_arch }}
@@ -568,16 +594,16 @@ jobs:
       - name: Build Windows
         shell: pwsh
         run: |
-          cd vlc-source
+          Set-Location $env:VLC_SOURCE_DIR
           & "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" ${{ matrix.vs_arch }}
           ninja -C build-windows-${{ matrix.arch }}-${{ matrix.compiler }} -j$env:NUMBER_OF_PROCESSORS
 
       - name: Collect artifacts
         shell: pwsh
         run: |
-          cd vlc-source
+          Set-Location $env:VLC_SOURCE_DIR
           $BUILD_DIR = "build-windows-${{ matrix.arch }}-${{ matrix.compiler }}"
-          $DIST_DIR = "..\..\dist\windows-${{ matrix.arch }}-${{ matrix.compiler }}"
+          $DIST_DIR = "${{ env.DIST_ROOT }}\windows-${{ matrix.arch }}-${{ matrix.compiler }}"
           
           New-Item -ItemType Directory -Force -Path "$DIST_DIR\include\vlc"
           New-Item -ItemType Directory -Force -Path "$DIST_DIR\lib"
@@ -591,7 +617,7 @@ jobs:
       - name: Verify artifacts
         shell: pwsh
         run: |
-          $DIST_DIR = "..\dist\windows-${{ matrix.arch }}-${{ matrix.compiler }}"
+          $DIST_DIR = "${{ env.DIST_ROOT }}\windows-${{ matrix.arch }}-${{ matrix.compiler }}"
           Write-Host "=== Library files ==="
           Get-ChildItem "$DIST_DIR\lib" | Format-Table Name, Length
           Write-Host ""
@@ -601,7 +627,7 @@ jobs:
       - name: Create package
         shell: pwsh
         run: |
-          cd dist
+          Set-Location "${{ env.DIST_ROOT }}"
           Compress-Archive -Path "windows-${{ matrix.arch }}-${{ matrix.compiler }}" -DestinationPath "libvlc-windows-${{ matrix.arch }}-${{ matrix.compiler }}-built.zip" -Force
 
       - name: Upload artifact
@@ -615,7 +641,7 @@ jobs:
 
   build-freebsd:
     name: Build FreeBSD-${{ matrix.arch }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     strategy:
       fail-fast: false
       matrix:
@@ -625,13 +651,18 @@ jobs:
     timeout-minutes: 120
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4.2.0
+        with:
+          clean: false
+          persist-credentials: false
 
       - name: Setup FreeBSD VM
         uses: vmactions/freebsd-vm@v1
         with:
+          copyback: true
           prepare: |
-            pkg install -y meson ninja pkgconf llvm17 gcc13 git
+            pkg install -y meson ninja pkgconf llvm17 gcc13 git \
+              ffmpeg pulseaudio alsa-lib jackit srt librist libmtp
             # For arm64 cross-compile
             if [ "${{ matrix.arch }}" = "arm64" ]; then
               pkg install -y aarch64-binutils aarch64-gcc
@@ -640,14 +671,18 @@ jobs:
       - name: Clone VLC source
         uses: vmactions/freebsd-vm@v1
         with:
+          copyback: true
           run: |
-            git clone --depth 1 --branch ${{ github.event.inputs.vlc_branch }} ${{ env.VLC_REPO_URL }} vlc-source
+            VLC_SOURCE_DIR="/tmp/vlc-source-${{ github.run_id }}-${{ github.job }}"
+            git clone --depth 1 --branch "${{ github.event.inputs.vlc_branch }}" "${{ env.VLC_REPO_URL }}" "$VLC_SOURCE_DIR"
+            echo "VLC_SOURCE_DIR=$VLC_SOURCE_DIR" >> $GITHUB_ENV
 
       - name: Configure FreeBSD build
         uses: vmactions/freebsd-vm@v1
         with:
+          copyback: true
           run: |
-            cd vlc-source
+            cd "$VLC_SOURCE_DIR"
             mkdir -p build-freebsd-${{ matrix.arch }}
             
             if [ "${{ matrix.arch }}" = "arm64" ]; then
@@ -692,28 +727,32 @@ jobs:
       - name: Build FreeBSD
         uses: vmactions/freebsd-vm@v1
         with:
+          copyback: true
           run: |
-            cd vlc-source
+            cd "$VLC_SOURCE_DIR"
             ninja -C build-freebsd-${{ matrix.arch }} -j$(sysctl -n hw.ncpu)
 
       - name: Collect artifacts
         uses: vmactions/freebsd-vm@v1
         with:
+          copyback: true
           run: |
-            cd vlc-source
+            cd "$VLC_SOURCE_DIR"
             BUILD_DIR="build-freebsd-${{ matrix.arch }}"
-            mkdir -p ../../dist/freebsd-${{ matrix.arch }}/include/vlc
-            mkdir -p ../../dist/freebsd-${{ matrix.arch }}/lib
+            DIST_DIR="${{ env.DIST_ROOT }}/freebsd-${{ matrix.arch }}"
+            mkdir -p "$DIST_DIR/include/vlc"
+            mkdir -p "$DIST_DIR/lib"
             
-            find "$BUILD_DIR" -name "*.h" -path "*/include/*" -exec cp {} ../../dist/freebsd-${{ matrix.arch }}/include/vlc/ \;
-            find "$BUILD_DIR/../include" -name "*.h" -exec cp {} ../../dist/freebsd-${{ matrix.arch }}/include/vlc/ \; 2>/dev/null || true
-            find "$BUILD_DIR" \( -name "*.so*" -o -name "*.a" \) -exec cp {} ../../dist/freebsd-${{ matrix.arch }}/lib/ \;
+            find "$BUILD_DIR" -name "*.h" -path "*/include/*" -exec cp {} "$DIST_DIR/include/vlc/" \;
+            find "$BUILD_DIR/../include" -name "*.h" -exec cp {} "$DIST_DIR/include/vlc/" \; 2>/dev/null || true
+            find "$BUILD_DIR" \( -name "*.so*" -o -name "*.a" \) -exec cp {} "$DIST_DIR/lib/" \;
 
       - name: Verify artifacts
         uses: vmactions/freebsd-vm@v1
         with:
+          copyback: true
           run: |
-            DIST_DIR="../dist/freebsd-${{ matrix.arch }}"
+            DIST_DIR="${{ env.DIST_ROOT }}/freebsd-${{ matrix.arch }}"
             echo "=== Library files ==="
             ls -lh "$DIST_DIR/lib/"
             echo ""
@@ -723,8 +762,9 @@ jobs:
       - name: Create package
         uses: vmactions/freebsd-vm@v1
         with:
+          copyback: true
           run: |
-            cd dist
+            cd "${{ env.DIST_ROOT }}"
             zip -r "libvlc-freebsd-${{ matrix.arch }}-built.zip" "freebsd-${{ matrix.arch }}/"
 
       - name: Upload artifact
@@ -740,7 +780,7 @@ jobs:
     name: Create GitHub Release
     needs: [build-ios-macos, build-android, build-linux, build-windows, build-freebsd]
     if: github.event_name == 'workflow_dispatch' && inputs.create_release == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: write
     steps:

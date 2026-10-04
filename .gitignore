@@ -2,7 +2,6 @@
 __pycache__/
 *.py[cod]
 *$py.class
-*.so
 .Python
 venv/
 env/
@@ -14,6 +13,15 @@ build/
 *.egg-info/
 *.zip
 *.tar.gz
+*.exe
+*.elf
+*.o
+*.so
+*.dylib
+*.dll
+*.a
+*.lib
+*.pdb
 
 # IDE
 .vscode/
@@ -25,16 +33,9 @@ build/
 .DS_Store
 Thumbs.db
 
-# LibVLC specific
-*.a
-*.so
-*.dylib
-*.dll
-*.lib
-*.pdb
-
 # Logs
 *.log
+run_log.txt
 
 # Temporary files
 *.tmp
